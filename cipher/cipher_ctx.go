@@ -1,7 +1,6 @@
 package cipher
 
 import (
-	"crypto/md5"
 	"crypto/rand"
 	"fmt"
 	"math/big"
@@ -37,13 +36,13 @@ var group5_p *big.Int = new(big.Int).SetBytes([]byte{
 var group5_g int = 2
 
 type CipherContext struct {
-	P        *big.Int
-	G        int
-	XY       *big.Int
-	EF       *big.Int
-	Key      *big.Int
-	FixedKey []byte // fixed size key, for cipher
-	IV       []byte
+	P         *big.Int
+	G         int
+	XY        *big.Int
+	EF        *big.Int
+	Key       *big.Int
+	CryptoKey []byte // fixed size key, for cipher
+	IV        []byte
 }
 
 func MakeCipherContext(p *big.Int, g int) *CipherContext {
@@ -94,29 +93,7 @@ func (ctx *CipherContext) CalcKey(ef *big.Int) {
 	ctx.Key = new(big.Int).Exp(ef, ctx.XY, ctx.P)
 }
 
-func (ctx *CipherContext) MakeFixedKeyIV(key_size, iv_size int) ([]byte, []byte) {
-	key_bs := ctx.Key.Bytes()
-	buf := make([]byte, key_size+iv_size)
-
-	for cur, remain, msum := 0, key_size+iv_size, ([]byte)(nil); remain > 0; {
-		m := md5.New()
-		if msum != nil {
-			m.Write(msum)
-		}
-
-		msum = m.Sum(key_bs)
-		if len(msum) > remain {
-			copy(buf[cur:], msum[:remain])
-			remain = 0
-		} else {
-			copy(buf[cur:], msum)
-			cur += len(msum)
-			remain -= len(msum)
-		}
-	}
-
-	ctx.FixedKey = buf[:key_size]
-	ctx.IV = buf[key_size:]
-
-	return ctx.FixedKey, ctx.IV
+func (ctx *CipherContext) MakeCryptoKeyIV(key_size, iv_size int) ([]byte, []byte) {
+	ctx.CryptoKey, ctx.IV = MakeCryptoKeyIV(ctx.Key.Bytes(), key_size, iv_size)
+	return ctx.CryptoKey, ctx.IV
 }
