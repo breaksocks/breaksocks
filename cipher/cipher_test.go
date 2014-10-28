@@ -34,3 +34,28 @@ func TestKeyGen(t *testing.T) {
 	delta := end_t.Sub(start_t)
 	fmt.Println(delta)
 }
+
+func TestCipherEnc(t *testing.T) {
+	cfg := GetCipherConfig("aes-128")
+	if cfg == nil {
+		t.Error("no such aes-128")
+	}
+
+	enc, dec, err := cfg.NewCipher([]byte("1234432112344321"),
+		make([]byte, 16))
+	if err != nil {
+		t.Error(err)
+	}
+
+	msg := []byte("test message")
+	bs := make([]byte, len(msg))
+	dec_bs := make([]byte, len(msg))
+	enc.XORKeyStream(bs, msg)
+	fmt.Println(bs)
+	dec.XORKeyStream(dec_bs, bs)
+	fmt.Println(string(dec_bs))
+
+	if string(dec_bs) != string(msg) {
+		t.Error("dec fail")
+	}
+}
