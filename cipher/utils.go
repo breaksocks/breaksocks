@@ -12,8 +12,9 @@ func MakeCryptoKeyIV(password []byte, key_size, iv_size int) ([]byte, []byte) {
 		if msum != nil {
 			m.Write(msum)
 		}
+		m.Write(password)
+		msum = m.Sum(nil)
 
-		msum = m.Sum(password)
 		if len(msum) > remain {
 			copy(buf[cur:], msum[:remain])
 			remain = 0

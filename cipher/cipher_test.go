@@ -1,6 +1,7 @@
 package cipher
 
 import (
+	"bytes"
 	"fmt"
 	"testing"
 	"time"
@@ -41,20 +42,23 @@ func TestCipherEnc(t *testing.T) {
 		t.Error("no such aes-128")
 	}
 
-	enc, dec, err := cfg.NewCipher([]byte("1234432112344321"),
-		make([]byte, 16))
+	key, iv := MakeCryptoKeyIV([]byte("1234"), 16, 16)
+	enc, dec, err := cfg.NewCipher(key, iv)
 	if err != nil {
 		t.Error(err)
 	}
 
 	msg := []byte("test message")
+	right_enc := []byte{108, 242, 144, 18, 98, 87, 61, 91, 60, 179, 225, 189}
 	bs := make([]byte, len(msg))
 	dec_bs := make([]byte, len(msg))
-	enc.XORKeyStream(bs, msg)
-	fmt.Println(bs)
-	dec.XORKeyStream(dec_bs, bs)
-	fmt.Println(string(dec_bs))
 
+	enc.XORKeyStream(bs, msg)
+	if !bytes.Equal(bs, right_enc) {
+		t.Error("encrypt error", bs, right_enc)
+	}
+
+	dec.XORKeyStream(dec_bs, bs)
 	if string(dec_bs) != string(msg) {
 		t.Error("dec fail")
 	}
