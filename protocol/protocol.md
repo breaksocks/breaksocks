@@ -3,7 +3,6 @@
 ## packet encrypt
 1. before authenticated: encrypted by configured password or not encrypted
     1. packet flag: "genc"
-    2. packet start with a size[2 bytes]
 2. authenticated: encrypted by temporary password
     1. packet flag: "tenc"
 
