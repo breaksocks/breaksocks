@@ -23,19 +23,24 @@
     2. p_size[2] : size of p
     3. f_size[2] : size of f
     4. sig_size[2] : size of signature
-    5. pub[pub_size] : server public key
-    6. p[p_size] : Diffie-Hellman-KeyExchange-Algorithm - p
-    7. g[1] : Diffie-Hellman-KeyExchange-Algorithm - g
-    8. f[f_size] : Diffie-Hellman-KeyExchange-Algorithm - f
-    9. sig[sig_size] : signature of hash(p + g + f)
+    5. mds_size[2] : size of encrypt methods
+    6. pub[pub_size] : server public key
+    7. p[p_size] : Diffie-Hellman-KeyExchange-Algorithm - p
+    8. g[1] : Diffie-Hellman-KeyExchange-Algorithm - g
+    9. f[f_size] : Diffie-Hellman-KeyExchange-Algorithm - f
+    10. sig[sig_size] : signature of hash(p + g + f)
+    11. methods[mds_size] : encrypt methods
 2. reuse session response(start ok or start exchange):
     1. resuse_ok[1] : whether login ok
     2. fail_code:[1] : reuse fail code
     3. cipher_exchange_init[?] : only if it can start cipher exchanging
 
 ### 3. Cipher Exchange Finish (genc)
-1. e[size] : Diffie-Hellman-KeyExchange-Algorithm - e
-2. [optional] Login Request encrypted packet (not encrypted by genc)
+1. e_size[2] : size of e
+2. md_size[2] : size of encrypt method
+3. e[size] : Diffie-Hellman-KeyExchange-Algorithm - e
+4. method[md_size] : encrypt method
+5. [optional] Login Request encrypted packet (not encrypted by genc)
 
 ### 4. Encrypted Packet (tenc)
 1. magic[1] : magic
