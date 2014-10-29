@@ -1,4 +1,4 @@
-package cipher
+package crypto
 
 import (
 	"bufio"
@@ -8,7 +8,7 @@ import (
 
 type StreamPipe struct {
 	rw    io.ReadWriter
-	buf_r bufio.Reader
+	buf_r *bufio.Reader
 	enc   cipher.Stream
 	dec   cipher.Stream
 }
@@ -21,16 +21,20 @@ func (pipe *StreamPipe) SwitchCipher(enc, dec cipher.Stream) {
 	pipe.enc, pipe.dec = enc, dec
 }
 
-func (pipe *StreamPipe) Read(bs []byte) (n, error) {
-	if n, err := pipe.buf_r.Read(bs); err != nil {
-		return 0, err
-	} else {
-		pipe.dec.XORKeyStream(bs, bs[:n])
+func (pipe *StreamPipe) Read(bs []byte) (int, error) {
+	if n, err := pipe.buf_r.Read(bs); err == nil {
+		if pipe.dec != nil {
+			pip.dec.XORKeyStream(bs, bs[:n])
+		}
 		return n, nil
+	} else {
+		return 0, err
 	}
 }
 
-func (pipe *StreamPipe) Write(bs []byte) (n, error) {
-	pipe.enc.XORKeyStream(bs, bs)
-	return rw.Write(bs)
+func (pipe *StreamPipe) Write(bs []byte) (int, error) {
+	if pipe.enc != nil {
+		pipe.enc.XORKeyStream(bs, bs)
+	}
+	return pipe.rw.Write(bs)
 }
