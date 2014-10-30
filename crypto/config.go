@@ -81,11 +81,6 @@ func init() {
 		KeySize: 8,
 		IVSize:  des.BlockSize,
 		maker:   &DESCipherMaker{is3des: false}}
-	ciphers["3des-128"] = &CipherConfig{
-		Name:    "3des-128",
-		KeySize: 16,
-		IVSize:  des.BlockSize,
-		maker:   &DESCipherMaker{is3des: true}}
 	ciphers["3des-192"] = &CipherConfig{
 		Name:    "3des-192",
 		KeySize: 24,

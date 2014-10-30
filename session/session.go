@@ -1,23 +1,21 @@
 package session
 
 import (
-	"crypto/cipher"
 	"crypto/md5"
 	"crypto/rand"
 	"encoding/base64"
-	"github.com/freesocks/freesocks/cipher"
-	"math/big"
+	"github.com/breaksocks/breaksocks/crypto"
 	"time"
 )
 
 type SessionId string
 
 func SessionIdFromBytes(bs []byte) SessionId {
-	return base64.StdEncoding.EncodeToString(bs)
+	return SessionId(base64.StdEncoding.EncodeToString(bs))
 }
 
 func (sid SessionId) toBytes() ([]byte, error) {
-	return base64.StdEncoding.DecodeString(sid)
+	return base64.StdEncoding.DecodeString(string(sid))
 }
 
 func (sid SessionId) size() int {
@@ -29,21 +27,22 @@ func NewSessionId() (SessionId, error) {
 
 	now := time.Now()
 	if tbin, err := now.MarshalBinary(); err != nil {
-		return nil, err
+		return "", err
 	} else {
 		copy(buf[:12], tbin[1:13])
 	}
 
 	if _, err := rand.Read(buf[12:]); err != nil {
-		return nil, err
+		return "", err
 	}
 
 	session_bin := md5.Sum(buf)
-	return SessionIdFromBytes(session_bin), nil
+	return SessionIdFromBytes(session_bin[:]), nil
 }
 
 type Session struct {
-	Id        SessionId
-	Username  string
-	CipherCtx CipherContext
+	Id           SessionId
+	Username     string
+	CipherCtx    *crypto.CipherContext
+	CipherConfig *crypto.CipherConfig
 }

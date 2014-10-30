@@ -1,8 +1,8 @@
 package protocol
 
 const (
-	B_TRUE  = 1
-	B_FALSE = 0
+	B_TRUE  byte = 1
+	B_FALSE byte = 0
 
 	PROTO_MAGIC   = 'P'
 	PROTO_VERSION = 1
@@ -10,6 +10,11 @@ const (
 	PACKET_NEW_CONN   = 1
 	PACKET_PROXY      = 2
 	PACKET_CLOSE_CONN = 3
+
+	REUSE_SUCCESS                    = 0
+	REUSE_FAIL_HMAC_FAIL             = 1
+	REUSE_FAIL_SYS_ERR               = 2
+	REUSE_FAIL_START_CIPHER_EXCHANGE = 0x10
 )
 
 type ReuseSession struct {

@@ -26,8 +26,8 @@ func (mgr *SessionManager) NewSession() (*Session, error) {
 
 	mgr.lock.Lock()
 	defer mgr.lock.Unlock()
-	sessions[session_id] = session
-	return session
+	mgr.sessions[session_id] = session
+	return session, nil
 }
 
 func (mgr *SessionManager) GetSession(sid SessionId) *Session {

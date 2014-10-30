@@ -1,9 +1,7 @@
 package server
 
 import (
-	"github.com/breaksocks/breaksocks/session"
 	"github.com/breaksocks/breaksocks/utils"
-	"gopkg.in/yaml.v2"
 )
 
 type UserConfig struct {
@@ -25,14 +23,15 @@ func GetUserConfigs(path string) (*UserConfigs, error) {
 }
 
 func (cfgs *UserConfigs) Reload() error {
-	new_pass := make(map[string]*UserPasswd)
+	new_pass := make(map[string]*UserConfig)
 	if err := utils.LoadYamlConfig(cfgs.path, &new_pass); err != nil {
 		return err
 	}
 
 	cfgs.users = new_pass
+	return nil
 }
 
-func (cfgs *UserConfigs) Get(user string) *UserConfigs {
+func (cfgs *UserConfigs) Get(user string) *UserConfig {
 	return cfgs.users[user]
 }

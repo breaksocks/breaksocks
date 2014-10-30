@@ -11,7 +11,7 @@
 1. magic[1] : magic
 2. session_size[1] : size of session id, 0 for a new session
 3. random_size[1] : size of random data
-4. hmac_size[1] : size of hmac result
+4. hmac_size[1] : size of hmac(hash:sha256) result
 5. session[session_size] : session id
 6. random_data[random_size] : random data for hmac
 7. hmac[hamac_size] : hmac(cipher, random_data)
@@ -28,7 +28,7 @@
     7. p[p_size] : Diffie-Hellman-KeyExchange-Algorithm - p
     8. g[1] : Diffie-Hellman-KeyExchange-Algorithm - g
     9. f[f_size] : Diffie-Hellman-KeyExchange-Algorithm - f
-    10. sig[sig_size] : signature of hash(p + g + f)
+    10. sig[sig_size] : signature of hash(p + g + f) (sign: rsa, hash: sha256)
     11. methods[mds_size] : encrypt methods
 2. reuse session response(start ok or start exchange):
     1. resuse_ok[1] : whether login ok
@@ -40,7 +40,6 @@
 2. md_size[2] : size of encrypt method
 3. e[size] : Diffie-Hellman-KeyExchange-Algorithm - e
 4. method[md_size] : encrypt method
-5. [optional] Login Request encrypted packet (not encrypted by genc)
 
 ### 4. Encrypted Packet (tenc)
 1. magic[1] : magic

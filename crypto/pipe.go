@@ -24,7 +24,7 @@ func (pipe *StreamPipe) SwitchCipher(enc, dec cipher.Stream) {
 func (pipe *StreamPipe) Read(bs []byte) (int, error) {
 	if n, err := pipe.buf_r.Read(bs); err == nil {
 		if pipe.dec != nil {
-			pip.dec.XORKeyStream(bs, bs[:n])
+			pipe.dec.XORKeyStream(bs, bs[:n])
 		}
 		return n, nil
 	} else {
