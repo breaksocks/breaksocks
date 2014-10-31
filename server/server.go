@@ -25,13 +25,9 @@ type Server struct {
 	config    *utils.ServerConfig
 	user_cfgs *UserConfigs
 
-	priv_key *rsa.PrivateKey
-	pub_der  []byte
-	g_cipher struct {
-		config *crypto.CipherConfig
-		key    []byte
-		iv     []byte
-	}
+	priv_key    *rsa.PrivateKey
+	pub_der     []byte
+	g_cipher    *crypto.GlobalCipherConfig
 	enc_methods []byte
 
 	listenser *net.TCPListener
@@ -61,20 +57,10 @@ func NewServer(config *utils.ServerConfig) (*Server, error) {
 	}
 
 	if config.GlobalEncryptMethod != "" {
-		if config.GlobalEncryptPassword == "" {
-			return nil, fmt.Errorf("global cipher password can't be empty")
+		if server.g_cipher, err = crypto.LoadGlobalCipherConfig(
+			config.GlobalEncryptMethod, []byte(config.GlobalEncryptPassword)); err != nil {
+			return nil, err
 		}
-
-		cipher_cfg := crypto.GetCipherConfig(config.GlobalEncryptMethod)
-		if cipher_cfg == nil {
-			return nil, fmt.Errorf("no such cipher: %s", config.GlobalEncryptMethod)
-		}
-
-		key, iv := crypto.MakeCryptoKeyIV([]byte(config.GlobalEncryptPassword),
-			cipher_cfg.KeySize, cipher_cfg.IVSize)
-		server.g_cipher.config = cipher_cfg
-		server.g_cipher.key = key
-		server.g_cipher.iv = iv
 	}
 
 	if server.user_cfgs, err = GetUserConfigs(config.UserConfigPath); err != nil {
@@ -105,11 +91,11 @@ func (ser *Server) processClient(conn *net.TCPConn) {
 	defer conn.Close()
 
 	pipe := crypto.NewStreamPipe(conn)
-	if ser.g_cipher.config != nil {
-		enc, dec, err := ser.g_cipher.config.NewCipher(ser.g_cipher.key, ser.g_cipher.iv)
+	if ser.g_cipher != nil {
+		enc, dec, err := ser.g_cipher.NewCipher()
 		if err != nil {
-			log.Printf("kl: %d, ivl: %d, %#v", len(ser.g_cipher.key), len(ser.g_cipher.iv),
-				ser.g_cipher.config)
+			log.Printf("kl: %d, ivl: %d, %#v", len(ser.g_cipher.Key), len(ser.g_cipher.IV),
+				ser.g_cipher.Config)
 			log.Fatalf("make global enc/dec fail: %s", err.Error())
 		}
 		pipe.SwitchCipher(enc, dec)
@@ -321,5 +307,5 @@ func (ser *Server) reuseSession(pipe *crypto.StreamPipe, s_bs, rand_bs, hmac_bs 
 }
 
 func (ser *Server) clientLoop(user *session.Session, pipe *crypto.StreamPipe) {
-	// socks proxy
+	log.Printf("start proxy: %s(%s)", user.Username, user.Id)
 }

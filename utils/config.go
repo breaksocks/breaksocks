@@ -28,6 +28,7 @@ type ClientConfig struct {
 	GlobalEncryptMethod   string
 	GlobalEncryptPassword string
 	LinkEncryptMethods    []string
+	ServerPublicKeyPath   string
 
 	Username string
 	Password string
