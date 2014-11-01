@@ -14,7 +14,7 @@ func SessionIdFromBytes(bs []byte) SessionId {
 	return SessionId(base64.StdEncoding.EncodeToString(bs))
 }
 
-func (sid SessionId) toBytes() ([]byte, error) {
+func (sid SessionId) Bytes() ([]byte, error) {
 	return base64.StdEncoding.DecodeString(string(sid))
 }
 

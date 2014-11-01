@@ -67,8 +67,10 @@ func NewServer(config *utils.ServerConfig) (*Server, error) {
 		return nil, err
 	}
 
-	addr := net.TCPAddr{IP: net.ParseIP(config.IP), Port: int(config.Port)}
-	if server.listenser, err = net.ListenTCP("tcp", &addr); err != nil {
+	if l, err := net.Listen("tcp", config.ListenAddr); err == nil {
+		server.listenser = l.(*net.TCPListener)
+		log.Printf("listen on: %s", config.ListenAddr)
+	} else {
 		return nil, err
 	}
 
@@ -168,7 +170,7 @@ func (ser *Server) newSession(pipe *crypto.StreamPipe) *session.Session {
 	cur += 1
 	cur += copy(buf[cur:], f_bs)
 
-	hash_bs := sha256.Sum256(buf[:cur])
+	hash_bs := sha256.Sum256(buf[10+len(ser.pub_der) : cur])
 	if sig, err := rsa.SignPKCS1v15(rand.Reader, ser.priv_key, gocrypto.SHA256,
 		hash_bs[:]); err != nil {
 		log.Printf("sign p/g/f fail: %s", err.Error())
@@ -258,6 +260,10 @@ func (ser *Server) clientLogin(pipe *crypto.StreamPipe) *session.Session {
 				return nil
 			}
 			s.Username = string(user)
+			if msg, err = s.Id.Bytes(); err != nil {
+				log.Printf("sessionId toBytes fail: %s", err.Error())
+				return nil
+			}
 		}
 	} else {
 		msg = []byte("user/passwd size invalid")
@@ -267,6 +273,7 @@ func (ser *Server) clientLogin(pipe *crypto.StreamPipe) *session.Session {
 	buf[2] = login_ok
 	buf[3] = byte(len(msg))
 	copy(buf[4:], msg)
+	log.Printf("buf:%#v", buf)
 	if _, err := pipe.Write(buf[:4+buf[3]]); err != nil {
 		log.Printf("write err rep fail: %s", err.Error())
 		return nil

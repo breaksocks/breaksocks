@@ -2,6 +2,7 @@ package utils
 
 import (
 	"gopkg.in/yaml.v2"
+	"io"
 	"os"
 )
 
@@ -9,9 +10,7 @@ const defaultKeyPath = "rsa_key"
 const defaultUserConfigPath = "users"
 
 type ServerConfig struct {
-	IP   string
-	Port uint16
-
+	ListenAddr            string
 	GlobalEncryptMethod   string
 	GlobalEncryptPassword string
 	LinkEncryptMethods    []string
@@ -21,9 +20,9 @@ type ServerConfig struct {
 }
 
 type ClientConfig struct {
-	ServerIP   string
-	ServerPort string
-	LocalPort  string
+	ServerAddr      string
+	SocksListenAddr string
+	RedirListenAddr string
 
 	GlobalEncryptMethod   string
 	GlobalEncryptPassword string
@@ -44,18 +43,20 @@ func LoadYamlConfig(path string, obj interface{}) error {
 		}
 
 		data := make([]byte, fstat.Size())
+		if _, err := io.ReadFull(f, data); err != nil {
+			return err
+		}
 		return yaml.Unmarshal(data, obj)
 	}
 }
 
 func LoadServerConfig(path string) (*ServerConfig, error) {
 	cfg := new(ServerConfig)
-	cfg.IP = "0.0.0.0"
-	cfg.Port = 8989
+	cfg.ListenAddr = "0.0.0.0:8989"
 	cfg.GlobalEncryptMethod = "3des-192"
 	cfg.GlobalEncryptPassword = "passwd"
-	cfg.LinkEncryptMethods = []string{"rc4", "des", "3des-192",
-		"aes-128", "aes-192", "aes-256"}
+	cfg.LinkEncryptMethods = []string{"aes-256", "aes-192", "aes-128",
+		"3des-192", "rc4"}
 	cfg.KeyPath = defaultKeyPath
 	cfg.UserConfigPath = defaultUserConfigPath
 	if err := LoadYamlConfig(path, cfg); err != nil {
@@ -66,7 +67,8 @@ func LoadServerConfig(path string) (*ServerConfig, error) {
 
 func LoadClientConfig(path string) (*ClientConfig, error) {
 	cfg := new(ClientConfig)
-	cfg.GlobalEncryptMethod = "3des-128"
+	cfg.SocksListenAddr = "127.0.0.1:1080"
+	cfg.GlobalEncryptMethod = "3des-192"
 	cfg.GlobalEncryptPassword = "passwd"
 	cfg.LinkEncryptMethods = []string{"aes-256", "aes-192", "aes-128",
 		"3des-192", "rc4"}
