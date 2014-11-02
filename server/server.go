@@ -330,7 +330,7 @@ func (ser *Server) clientLoop(user *session.Session, pipe *crypto.StreamPipe) {
 	var lock sync.RWMutex
 	buf := make([]byte, 65535)
 	for {
-		if n, err := io.ReadAtLeast(pipe, buf, 4); err != nil {
+		if _, err := io.ReadFull(pipe, buf[:4]); err != nil {
 			log.Printf("recv packet fail: %s", err.Error())
 			return
 		} else {
@@ -339,11 +339,9 @@ func (ser *Server) clientLoop(user *session.Session, pipe *crypto.StreamPipe) {
 				return
 			}
 			pkt_size := utils.ReadN2(buf[2:])
-			if pkt_size > uint16(4+n) {
-				if _, err := io.ReadFull(pipe, buf[n:pkt_size-4]); err != nil {
-					log.Printf("recv packet fail: %s", err.Error())
-					return
-				}
+			if _, err := io.ReadFull(pipe, buf[4:pkt_size+4]); err != nil {
+				log.Printf("recv packet fail: %s", err.Error())
+				return
 			}
 			switch buf[1] {
 			case protocol.PACKET_PROXY:

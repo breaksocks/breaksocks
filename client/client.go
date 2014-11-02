@@ -94,16 +94,14 @@ func (cli *Client) Init() error {
 	go func() {
 		buf := make([]byte, 65535)
 		for {
-			if n, err := io.ReadAtLeast(cli.pipe, buf, 4); err != nil {
+			if _, err := io.ReadFull(cli.pipe, buf[:4]); err != nil {
 				log.Printf("read from server fail: %s", err.Error())
 				break
 			} else {
 				pkt_size := utils.ReadN2(buf[2:])
-				if n < int(4+pkt_size) {
-					if _, err := io.ReadFull(cli.pipe, buf[n:pkt_size-4]); err != nil {
-						log.Printf("recv from server fail: %s", err.Error())
-						break
-					}
+				if _, err := io.ReadFull(cli.pipe, buf[4:pkt_size+4]); err != nil {
+					log.Printf("recv from server fail: %s", err.Error())
+					break
 				}
 				conn_id := utils.ReadN4(buf[4:])
 				switch buf[1] {
