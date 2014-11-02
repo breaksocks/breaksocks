@@ -11,6 +11,9 @@ const (
 	PACKET_PROXY      = 2
 	PACKET_CLOSE_CONN = 3
 
+	PROTO_ADDR_IP     byte = 1
+	PROTO_ADDR_DOMAIN byte = 2
+
 	REUSE_SUCCESS                    = 0
 	REUSE_FAIL_HMAC_FAIL             = 1
 	REUSE_FAIL_SYS_ERR               = 2

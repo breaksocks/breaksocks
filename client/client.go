@@ -21,14 +21,15 @@ type Client struct {
 	user   *session.Session
 	config *utils.ClientConfig
 
-	g_cipher          *crypto.GlobalCipherConfig
-	pipe_conn         *net.TCPConn
-	pipe              *crypto.StreamPipe
-	read_ch, write_ch chan []byte
+	g_cipher  *crypto.GlobalCipherConfig
+	pipe_conn *net.TCPConn
+	pipe      *crypto.StreamPipe
 
 	cipher_cfg *crypto.CipherConfig
 	cipher_ctx *crypto.CipherContext
 	session_id session.SessionId
+	conn_mgr   *ConnManager
+	write_ch   chan []byte
 
 	listenser *net.TCPListener
 }
@@ -44,6 +45,8 @@ func NewClient(config *utils.ClientConfig) (*Client, error) {
 	}
 
 	cli.config = config
+	cli.write_ch = make(chan []byte)
+	cli.conn_mgr = NewConnManager(cli.write_ch)
 	return cli, nil
 }
 
@@ -77,6 +80,43 @@ func (cli *Client) Init() error {
 	if err := cli.login(); err != nil {
 		return err
 	}
+
+	go func() {
+		for {
+			if data, ok := <-cli.write_ch; ok {
+				if _, err := cli.pipe.Write(data); err != nil {
+					break
+				}
+			} else {
+				break
+			}
+		}
+	}()
+
+	go func() {
+		buf := make([]byte, 65535)
+		for {
+			if n, err := io.ReadAtLeast(cli.pipe, buf, 4); err != nil {
+				log.Printf("read from server fail: %s", err.Error())
+				break
+			} else {
+				pkt_size := utils.ReadN2(buf[2:])
+				if n < int(4+pkt_size) {
+					if _, err := io.ReadFull(cli.pipe, buf[n:pkt_size-4]); err != nil {
+						log.Printf("recv from server fail: %s", err.Error())
+						break
+					}
+				}
+				conn_id := utils.ReadN4(buf[4:])
+				switch buf[1] {
+				case protocol.PACKET_PROXY:
+					cli.conn_mgr.WriteToLocalConn(conn_id, buf[8:pkt_size+4])
+				case protocol.PACKET_CLOSE_CONN:
+					cli.conn_mgr.CloseConn(conn_id)
+				}
+			}
+		}
+	}()
 
 	if l, err := net.Listen("tcp", cli.config.SocksListenAddr); err == nil {
 		cli.listenser = l.(*net.TCPListener)
@@ -219,7 +259,6 @@ func (cli *Client) login() error {
 		cli.session_id = session.SessionIdFromBytes(body)
 		log.Printf("login ok, sessionId: %s", cli.session_id)
 	} else {
-		log.Printf(string(u), string(p))
 		log.Printf("login fail: %s", string(body))
 		return fmt.Errorf("login fail")
 	}
@@ -228,38 +267,13 @@ func (cli *Client) login() error {
 }
 
 func (cli *Client) Close() {
-
-}
-
-func (cli *Client) clientLoop() {
-	pipe_read_ch := make(chan []byte)
-	go func() {
-		buf := make([]byte, 65535)
-		for {
-			if n, err := cli.pipe.Read(buf); err == nil {
-				pipe_read_ch <- buf[:n]
-			} else {
-				close(pipe_read_ch)
-				log.Printf("stream_pipe read fail: %s", err.Error())
-				break
-			}
-		}
-	}()
-
-	/*for {*/
-	//select {
-	//case data, ok := <-pipe_read_ch:
-	//case data, ok := cli.write_ch:
-	//}
-	/*}*/
+	cli.listenser.Close()
 }
 
 func (cli *Client) DoDomainProxy(domain string, port int, rw io.ReadWriteCloser) {
+	cli.conn_mgr.DoProxy(protocol.PROTO_ADDR_DOMAIN, []byte(domain), port, rw)
 }
 
 func (cli *Client) DoIPProxy(addr []byte, port int, rw io.ReadWriteCloser) {
-}
-
-func (cli *Client) doProxy() {
-
+	cli.conn_mgr.DoProxy(protocol.PROTO_ADDR_IP, addr, port, rw)
 }

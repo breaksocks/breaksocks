@@ -41,40 +41,37 @@
 3. e[size] : Diffie-Hellman-KeyExchange-Algorithm - e
 4. method[md_size] : encrypt method
 
-### 4. Encrypted Packet (tenc)
-1. magic[1] : magic
-2. packet_type[1] : packet type of encrypted data
-3. packet_size[2] : size of packet
-4. packet_data[packet_size] : real packet
-
-### 5. Login Request(in Encrypted Packet)
+### 4. Login Request(tenc)
 1. client_version[2] : client protocol version
 2. username_size[1] : size of username
 3. passwd_size[1] : size of password
 4. username[username_size] : username
 5. passwd[passwd_size] : password
 
-### 6. Login Response (in Encrypted Packet)
+### 5. Login Response (tenc)
 1. server_version[2] : server protocol version
 2. login_ok[1] : is login ok (if login_ok is True the next field is session_size)
 3. session_size[1] / errmsg_size : size of session id / login error message
 4. session[session_size] / errmsg[errmsg_size] : session id / login error message
 
-### 7. New Connection (in Encrypted Packet)
-1. session_size[1] : size of session
-2. conn_type[1] : (IPv4/6/unknown)[high 4bit] | (TCP/UDP/DOMAIN)[low 4bit]
-3. port[2] : port
-4. reserved[1] : reserved field
-4. addr_size[1] : size of address
-5. client_size[2] : client packet
-6. addr[addr_size] : address to connect
-7. client[client_size] : client packet that has sent
+### 6. Encrypted Packet (tenc)
+1. magic[1] : magic
+2. packet_type[1] : packet type of encrypted data
+3. packet_size[2] : size of packet
+4. packet_data[packet_size] : real packet
 
-### 8. New Connection Response (in Encrypted Packet)
+### 7. New Connection (in Encrypted Packet)
+1. conn_type[1] : (IPv4/6/unknown)[high 4bit] | (TCP/UDP/DOMAIN)[low 4bit]
+2. addr_size[1] : size of address
+3. port[2] : port
+4. conn_id[4] : connection id
+4. addr[addr_size] : address to connect
+
+### 8. Connection Fail (in Encrypted Packet)
 1. conn_id[4] : connection id
 2. code[2] : error code
-3. rep_size[2] : size of remote response
-4. rep[rep_size] : remote packet that has sent
+3. msg_size[2] : size of errmsg
+4. msg[msg_size] : errmsg
 
 ### 9. Packet Proxy (in Encrypted Packet)
 1. conn_id[4] : connection id
