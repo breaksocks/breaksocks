@@ -24,3 +24,9 @@ func ReadN4(bs []byte) uint32 {
 	n |= uint32(bs[3])
 	return n
 }
+
+func Dump(bs []byte) []byte {
+	ret := make([]byte, len(bs))
+	copy(ret, bs)
+	return ret
+}

@@ -25,13 +25,15 @@ func main() {
 			log.Fatal(err)
 		}
 
-		addr := []byte{173, 194, 127, 41}
+		addr := []byte{218, 205, 73, 22}
 		for {
-			conn, err := l.Accept()
+			conn, err := l.(*net.TCPListener).AcceptTCP()
 			if err != nil {
 				log.Fatal(err)
+				return
 			}
-			go cli.DoIPProxy(addr, 80, conn)
+			log.Printf("got cli: %v", conn.LocalAddr())
+			cli.DoIPProxy(addr, 80, conn)
 		}
 	}
 }

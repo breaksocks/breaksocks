@@ -352,18 +352,21 @@ func (ser *Server) clientLoop(user *session.Session, pipe *crypto.StreamPipe) {
 				ch := conns[conn_id]
 				lock.RUnlock()
 				if ch != nil {
-					ch <- buf[8 : pkt_size-4]
+					ch <- utils.Dump(buf[8 : pkt_size+4])
+				} else {
+					log.Printf("no such conn: %d", conn_id)
 				}
 			case protocol.PACKET_NEW_CONN:
 				port := utils.ReadN2(buf[6:])
 				conn_id := utils.ReadN4(buf[8:])
-				addr := buf[12 : 12+int(buf[5])]
-				read := make(chan []byte)
+				conn_type := buf[4]
+				addr := utils.Dump(buf[12 : 12+int(buf[5])])
+				read := make(chan []byte, 32)
 				lock.Lock()
 				conns[conn_id] = read
 				lock.Unlock()
 				go func() {
-					ser.copyRemote(read, write_ch, conn_id, buf[4], addr, port)
+					ser.copyRemote(read, write_ch, conn_id, conn_type, addr, port)
 					lock.Lock()
 					delete(conns, conn_id)
 					lock.Unlock()
@@ -395,13 +398,18 @@ func (ser *Server) copyRemote(read, write chan []byte, conn_id uint32, conn_type
 		var remote_addr net.TCPAddr
 		remote_addr.IP = net.IP(addr)
 		remote_addr.Port = int(port)
+		log.Printf("addr: %v %v", addr, remote_addr)
 		if conn, err := net.DialTCP("tcp", nil, &remote_addr); err == nil {
 			rconn = conn
+		} else {
+			log.Printf("conn %s fail: %s", remote_addr, err.Error())
 		}
 	} else {
 		raddr := net.JoinHostPort(string(addr), fmt.Sprintf("%d", port))
 		if conn, err := net.Dial("tcp", raddr); err == nil {
 			rconn = conn.(*net.TCPConn)
+		} else {
+			log.Printf("conn %s fail: %s", raddr, err.Error())
 		}
 	}
 	if rconn == nil {
@@ -418,8 +426,10 @@ func (ser *Server) copyRemote(read, write chan []byte, conn_id uint32, conn_type
 		recv_buf := buf[8:]
 		for {
 			if n, err := rconn.Read(recv_buf); err == nil {
+				log.Printf("recv from remote: %d", n)
 				remote_ch <- n
 			} else {
+				log.Printf("remote closed")
 				remote_ch <- 0
 				return
 			}
@@ -429,6 +439,7 @@ func (ser *Server) copyRemote(read, write chan []byte, conn_id uint32, conn_type
 	for {
 		select {
 		case data, ok := <-read:
+			log.Printf("from cli: %v", data, ok)
 			if !ok {
 				rconn.Close()
 				return
@@ -436,6 +447,8 @@ func (ser *Server) copyRemote(read, write chan []byte, conn_id uint32, conn_type
 			if _, err := rconn.Write(data); err != nil {
 				rconn.Close()
 				return
+			} else {
+				log.Printf("write remote ok")
 			}
 		case n := <-remote_ch:
 			if n == 0 {
@@ -443,7 +456,7 @@ func (ser *Server) copyRemote(read, write chan []byte, conn_id uint32, conn_type
 				return
 			}
 			utils.WriteN2(buf[2:], uint16(n+4))
-			write <- buf[:n+8]
+			write <- utils.Dump(buf[:n+8])
 		}
 	}
 }

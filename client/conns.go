@@ -25,6 +25,8 @@ type ConnManager struct {
 func NewConnManager(write_ch chan []byte) *ConnManager {
 	cm := new(ConnManager)
 	cm.chans = make(map[uint32]*SockChan)
+	cm.write_ch = write_ch
+	cm.next_id = 1
 	return cm
 }
 
@@ -41,6 +43,9 @@ func (cm *ConnManager) newSockChan(rw io.ReadWriteCloser) *SockChan {
 			break
 		}
 		id += 1
+		if id == 0 {
+			id = 1
+		}
 	}
 	sc.id = id
 	cm.chans[id] = sc
@@ -110,6 +115,7 @@ func (cm *ConnManager) copyConn(sc *SockChan, rw io.ReadWriteCloser) {
 	}()
 
 	for {
+		exit := false
 		select {
 		case data, ok := <-sc.read:
 			if !ok {
@@ -118,17 +124,20 @@ func (cm *ConnManager) copyConn(sc *SockChan, rw io.ReadWriteCloser) {
 				return
 			}
 			if _, err := rw.Write(data); err != nil {
-				break
+				exit = true
 			}
 		case size, ok := <-ch:
 			if !ok {
-				break
+				exit = true
+			} else {
+				utils.WriteN2(bs[2:], uint16(4+size))
+				cm.write_ch <- utils.Dump(bs[:8+size])
 			}
-			utils.WriteN2(bs[2:], uint16(4+size))
-			cm.write_ch <- bs[:8+size]
+		}
+		if exit {
+			break
 		}
 	}
-
 	bs[1] = protocol.PACKET_CLOSE_CONN
 	utils.WriteN2(bs[2:], 4)
 	cm.write_ch <- bs[:8]

@@ -3,6 +3,7 @@ package crypto
 import (
 	"bufio"
 	"crypto/cipher"
+	"fmt"
 	"io"
 )
 
@@ -25,6 +26,7 @@ func (pipe *StreamPipe) Read(bs []byte) (int, error) {
 	if n, err := pipe.buf_r.Read(bs); err == nil {
 		if pipe.dec != nil {
 			pipe.dec.XORKeyStream(bs, bs[:n])
+			fmt.Printf("recv: %v\n", bs[:n])
 		}
 		return n, nil
 	} else {
@@ -33,6 +35,7 @@ func (pipe *StreamPipe) Read(bs []byte) (int, error) {
 }
 
 func (pipe *StreamPipe) Write(bs []byte) (int, error) {
+	fmt.Printf("send: %v\n", bs)
 	if pipe.enc != nil {
 		pipe.enc.XORKeyStream(bs, bs)
 	}

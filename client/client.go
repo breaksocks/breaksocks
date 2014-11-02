@@ -30,8 +30,6 @@ type Client struct {
 	session_id session.SessionId
 	conn_mgr   *ConnManager
 	write_ch   chan []byte
-
-	listenser *net.TCPListener
 }
 
 func NewClient(config *utils.ClientConfig) (*Client, error) {
@@ -117,12 +115,6 @@ func (cli *Client) Init() error {
 			}
 		}
 	}()
-
-	if l, err := net.Listen("tcp", cli.config.SocksListenAddr); err == nil {
-		cli.listenser = l.(*net.TCPListener)
-	} else {
-		return err
-	}
 
 	return nil
 }
@@ -267,7 +259,6 @@ func (cli *Client) login() error {
 }
 
 func (cli *Client) Close() {
-	cli.listenser.Close()
 }
 
 func (cli *Client) DoDomainProxy(domain string, port int, rw io.ReadWriteCloser) {
