@@ -78,6 +78,8 @@ func (cm *ConnManager) WriteToLocalConn(conn_id uint32, data []byte) {
 }
 
 func (cm *ConnManager) DoProxy(conn_type byte, addr []byte, port int, rw io.ReadWriteCloser) {
+	defer rw.Close()
+
 	sc := cm.newSockChan(rw)
 	req := make([]byte, 12+len(addr))
 	req[0] = protocol.PROTO_MAGIC
@@ -141,6 +143,5 @@ func (cm *ConnManager) copyConn(sc *SockChan, rw io.ReadWriteCloser) {
 	bs[1] = protocol.PACKET_CLOSE_CONN
 	utils.WriteN2(bs[2:], 4)
 	cm.write_ch <- bschan.CurBytes()[:8]
-	rw.Close()
 	cm.delSockChan(sc.id)
 }

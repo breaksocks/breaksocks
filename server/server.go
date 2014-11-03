@@ -368,13 +368,6 @@ func (ser *Server) clientLoop(user *session.Session, pipe *crypto.StreamPipe) {
 					lock.Lock()
 					delete(conns, conn_id)
 					lock.Unlock()
-
-					buf := make([]byte, 8)
-					buf[0] = protocol.PROTO_MAGIC
-					buf[1] = protocol.PACKET_CLOSE_CONN
-					utils.WriteN2(buf[2:], 4)
-					utils.WriteN4(buf[4:], conn_id)
-					write_ch <- buf
 				}()
 			case protocol.PACKET_CLOSE_CONN:
 				conn_id := utils.ReadN4(buf[4:])
@@ -400,14 +393,14 @@ func (ser *Server) copyRemote(read, write chan []byte, conn_id uint32, conn_type
 		if conn, err := net.DialTCP("tcp", nil, &remote_addr); err == nil {
 			rconn = conn
 		} else {
-			log.Printf("conn %s fail: %s", remote_addr, err.Error())
+			log.Printf("conn %#v fail: %s", remote_addr, err.Error())
 		}
 	} else {
 		raddr := net.JoinHostPort(string(addr), fmt.Sprintf("%d", port))
 		if conn, err := net.Dial("tcp", raddr); err == nil {
 			rconn = conn.(*net.TCPConn)
 		} else {
-			log.Printf("conn %s fail: %s", raddr, err.Error())
+			log.Printf("conn %#v fail: %s", raddr, err.Error())
 		}
 	}
 	if rconn == nil {
@@ -436,6 +429,7 @@ func (ser *Server) copyRemote(read, write chan []byte, conn_id uint32, conn_type
 		}
 	}()
 
+for_loop:
 	for {
 		select {
 		case data, ok := <-read:
@@ -444,15 +438,22 @@ func (ser *Server) copyRemote(read, write chan []byte, conn_id uint32, conn_type
 				return
 			}
 			if _, err := rconn.Write(data); err != nil {
-				return
+				break for_loop
 			} else {
 				log.Printf("write remote ok")
 			}
 		case data, ok := <-bschan.Chan:
 			if !ok {
-				return
+				break for_loop
 			}
 			write <- utils.Dump(data)
 		}
 	}
+
+	buf := make([]byte, 8)
+	buf[0] = protocol.PROTO_MAGIC
+	buf[1] = protocol.PACKET_CLOSE_CONN
+	utils.WriteN2(buf[2:], 4)
+	utils.WriteN4(buf[4:], conn_id)
+	write <- buf
 }
