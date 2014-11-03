@@ -33,6 +33,7 @@ type Client struct {
 }
 
 func NewClient(config *utils.ClientConfig) (*Client, error) {
+	log.Printf("%#v", config)
 	cli := new(Client)
 	var err error
 	if config.GlobalEncryptMethod != "" {
@@ -43,7 +44,7 @@ func NewClient(config *utils.ClientConfig) (*Client, error) {
 	}
 
 	cli.config = config
-	cli.write_ch = make(chan []byte)
+	cli.write_ch = make(chan []byte, 1024)
 	cli.conn_mgr = NewConnManager(cli.write_ch)
 	return cli, nil
 }

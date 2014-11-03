@@ -413,22 +413,24 @@ func (ser *Server) copyRemote(read, write chan []byte, conn_id uint32, conn_type
 	if rconn == nil {
 		return
 	}
+	defer rconn.Close()
 
-	buf := make([]byte, 65535)
-	buf[0] = protocol.PROTO_MAGIC
-	buf[1] = protocol.PACKET_PROXY
-	utils.WriteN4(buf[4:], conn_id)
+	bschan := utils.NewBytesChan(8, 65535, func(bs []byte) {
+		bs[0] = protocol.PROTO_MAGIC
+		bs[1] = protocol.PACKET_PROXY
+		utils.WriteN4(bs[4:], conn_id)
+	})
 
-	remote_ch := make(chan int)
 	go func() {
-		recv_buf := buf[8:]
 		for {
-			if n, err := rconn.Read(recv_buf); err == nil {
+			buf := bschan.CurBytes()
+			if n, err := rconn.Read(buf[8:]); err == nil {
 				log.Printf("recv from remote: %d", n)
-				remote_ch <- n
+				utils.WriteN2(buf[2:], uint16(n+4))
+				bschan.Send(n + 8)
 			} else {
 				log.Printf("remote closed")
-				remote_ch <- 0
+				bschan.Close()
 				return
 			}
 		}
@@ -439,22 +441,18 @@ func (ser *Server) copyRemote(read, write chan []byte, conn_id uint32, conn_type
 		case data, ok := <-read:
 			log.Printf("from cli: %v", data, ok)
 			if !ok {
-				rconn.Close()
 				return
 			}
 			if _, err := rconn.Write(data); err != nil {
-				rconn.Close()
 				return
 			} else {
 				log.Printf("write remote ok")
 			}
-		case n := <-remote_ch:
-			if n == 0 {
-				rconn.Close()
+		case data, ok := <-bschan.Chan:
+			if !ok {
 				return
 			}
-			utils.WriteN2(buf[2:], uint16(n+4))
-			write <- utils.Dump(buf[:n+8])
+			write <- utils.Dump(data)
 		}
 	}
 }

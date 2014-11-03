@@ -9,10 +9,7 @@ import (
 
 type SockChan struct {
 	id   uint32
-	read chan []byte
-}
-
-func (sc *SockChan) Copy(rw io.ReadWriteCloser) {
+	read *utils.BytesChan
 }
 
 type ConnManager struct {
@@ -32,7 +29,7 @@ func NewConnManager(write_ch chan []byte) *ConnManager {
 
 func (cm *ConnManager) newSockChan(rw io.ReadWriteCloser) *SockChan {
 	sc := new(SockChan)
-	sc.read = make(chan []byte)
+	sc.read = utils.NewBytesChan(8, 65535, nil)
 
 	cm.lock.Lock()
 	defer cm.lock.Unlock()
@@ -64,7 +61,7 @@ func (cm *ConnManager) CloseConn(conn_id uint32) {
 	cm.lock.RUnlock()
 
 	if sc != nil {
-		close(sc.read)
+		sc.read.Close()
 		cm.delSockChan(conn_id)
 	}
 }
@@ -75,7 +72,8 @@ func (cm *ConnManager) WriteToLocalConn(conn_id uint32, data []byte) {
 	cm.lock.RUnlock()
 
 	if sc != nil {
-		sc.read <- data
+		copy(sc.read.CurBytes(), data)
+		sc.read.Send(len(data))
 	}
 }
 
@@ -96,19 +94,20 @@ func (cm *ConnManager) DoProxy(conn_type byte, addr []byte, port int, rw io.Read
 }
 
 func (cm *ConnManager) copyConn(sc *SockChan, rw io.ReadWriteCloser) {
-	bs := make([]byte, 65535)
-	bs[0] = protocol.PROTO_MAGIC
-	bs[1] = protocol.PACKET_PROXY
-	utils.WriteN4(bs[4:], sc.id)
-	ch := make(chan int)
+	bschan := utils.NewBytesChan(8, 65535, func(bs []byte) {
+		bs[0] = protocol.PROTO_MAGIC
+		bs[1] = protocol.PACKET_PROXY
+		utils.WriteN4(bs[4:], sc.id)
+	})
 
 	go func() {
-		buf := bs[8:]
 		for {
-			if n, err := rw.Read(buf); err == nil {
-				ch <- n
+			buf := bschan.CurBytes()
+			if n, err := rw.Read(buf[8:]); err == nil {
+				utils.WriteN2(buf[2:], uint16(4+n))
+				bschan.Send(8 + n)
 			} else {
-				close(ch)
+				bschan.Close()
 				return
 			}
 		}
@@ -117,7 +116,7 @@ func (cm *ConnManager) copyConn(sc *SockChan, rw io.ReadWriteCloser) {
 	for {
 		exit := false
 		select {
-		case data, ok := <-sc.read:
+		case data, ok := <-sc.read.Chan:
 			if !ok {
 				// closed via cm.CloseConn
 				rw.Close()
@@ -126,21 +125,22 @@ func (cm *ConnManager) copyConn(sc *SockChan, rw io.ReadWriteCloser) {
 			if _, err := rw.Write(data); err != nil {
 				exit = true
 			}
-		case size, ok := <-ch:
+		case data, ok := <-bschan.Chan:
 			if !ok {
 				exit = true
 			} else {
-				utils.WriteN2(bs[2:], uint16(4+size))
-				cm.write_ch <- utils.Dump(bs[:8+size])
+				cm.write_ch <- utils.Dump(data)
 			}
 		}
 		if exit {
 			break
 		}
 	}
+
+	bs := bschan.CurBytes()
 	bs[1] = protocol.PACKET_CLOSE_CONN
 	utils.WriteN2(bs[2:], 4)
-	cm.write_ch <- bs[:8]
+	cm.write_ch <- bschan.CurBytes()[:8]
 	rw.Close()
 	cm.delSockChan(sc.id)
 }
