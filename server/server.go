@@ -315,7 +315,7 @@ func (ser *Server) reuseSession(pipe *crypto.StreamPipe, s_bs, rand_bs, hmac_bs 
 
 func (ser *Server) clientLoop(user *session.Session, pipe *crypto.StreamPipe) {
 	log.Printf("start proxy: %s(%s)", user.Username, user.Id)
-	write_ch := make(chan []byte)
+	write_ch := make(chan []byte, 1024)
 	go func() {
 		for {
 			if data, ok := <-write_ch; ok {

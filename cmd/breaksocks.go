@@ -68,7 +68,7 @@ func main() {
 				log.Fatal("get conn file fail: %s", err)
 			}
 			log.Printf("got cli: %v (%v, %d)", conn.LocalAddr(), addr, port)
-			cli.DoIPProxy(addr, port, conn)
+			go cli.DoIPProxy(addr, port, conn)
 		}
 	}
 }
