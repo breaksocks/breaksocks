@@ -8,8 +8,8 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"fmt"
+	"github.com/golang/glog"
 	"io"
-	"log"
 	"math/big"
 	"net"
 	"os"
@@ -41,7 +41,7 @@ func NewServer(config *ServerConfig) (*Server, error) {
 
 	if server.priv_key, err = LoadRSAPrivateKey(config.KeyPath); err != nil {
 		if os.IsNotExist(err) {
-			log.Printf("generating new private key(RSA 2048bits) ...")
+			glog.Info("generating new private key(RSA 2048bits) ...")
 			if server.priv_key, err = GenerateRSAKey(2048, config.KeyPath); err != nil {
 				return nil, err
 			}
@@ -66,7 +66,7 @@ func NewServer(config *ServerConfig) (*Server, error) {
 
 	if l, err := net.Listen("tcp", config.ListenAddr); err == nil {
 		server.listenser = l.(*net.TCPListener)
-		log.Printf("listen on: %s", config.ListenAddr)
+		glog.Infof("listen on: %s", config.ListenAddr)
 	} else {
 		return nil, err
 	}
@@ -79,7 +79,7 @@ func NewServer(config *ServerConfig) (*Server, error) {
 func (ser *Server) Run() {
 	for {
 		if conn, err := ser.listenser.AcceptTCP(); err != nil {
-			log.Fatalf("accept fail: %s", err.Error())
+			glog.Fatalf("accept fail: %s", err.Error())
 		} else {
 			go ser.processClient(conn)
 		}
@@ -93,14 +93,12 @@ func (ser *Server) processClient(conn *net.TCPConn) {
 	if ser.g_cipher != nil {
 		enc, dec, err := ser.g_cipher.NewCipher()
 		if err != nil {
-			log.Printf("kl: %d, ivl: %d, %#v", len(ser.g_cipher.Key), len(ser.g_cipher.IV),
-				ser.g_cipher.Config)
-			log.Fatalf("make global enc/dec fail: %s", err.Error())
+			glog.Fatalf("make global enc/dec fail: %s", err.Error())
 		}
 		pipe.SwitchCipher(enc, dec)
 	}
 	if err := conn.SetNoDelay(true); err != nil {
-		log.Fatalf("set client NoDelay fail: %s", err.Error())
+		glog.Fatalf("set client NoDelay fail: %s", err.Error())
 	}
 
 	user := ser.clientStartup(pipe)
@@ -114,12 +112,12 @@ func (ser *Server) clientStartup(pipe *StreamPipe) *Session {
 	// cipher exchange && session cipher switch
 	header := make([]byte, 4)
 	if _, err := io.ReadFull(pipe, header); err != nil {
-		log.Printf("receive startup header fail: %s", err.Error())
+		glog.V(1).Infof("receive startup header fail: %s", err.Error())
 		return nil
 	}
 
 	if header[0] != PROTO_MAGIC {
-		log.Printf("reveiced a invalid magic: %d", header[0])
+		glog.V(1).Infof("reveiced a invalid magic: %d", header[0])
 		return nil
 	}
 
@@ -127,14 +125,14 @@ func (ser *Server) clientStartup(pipe *StreamPipe) *Session {
 		return ser.newSession(pipe)
 	}
 	if header[2] == 0 || header[3] == 0 {
-		log.Printf("reuse session, 0 random/hmac")
+		glog.V(1).Info("reuse session, 0 random/hmac")
 		return nil
 	}
 
 	body_size := header[1] + header[2] + header[3]
 	body := make([]byte, body_size)
 	if _, err := io.ReadFull(pipe, body); err != nil {
-		log.Printf("receive startup body fail")
+		glog.V(1).Info("receive startup body fail")
 		return nil
 	}
 	return ser.reuseSession(pipe, body[:header[1]],
@@ -145,13 +143,13 @@ func (ser *Server) clientStartup(pipe *StreamPipe) *Session {
 func (ser *Server) newSession(pipe *StreamPipe) *Session {
 	ctx, err := NewCipherContext(5)
 	if err != nil {
-		log.Printf("create cipher context fail: %s", err.Error())
+		glog.Errorf("create cipher context fail: %s", err.Error())
 		return nil
 	}
 
 	f, err := ctx.MakeF()
 	if err != nil {
-		log.Printf("make f fail: %s", err.Error())
+		glog.Errorf("make f fail: %s", err.Error())
 	}
 	p_bs, f_bs := ctx.P.Bytes(), f.Bytes()
 
@@ -170,7 +168,7 @@ func (ser *Server) newSession(pipe *StreamPipe) *Session {
 	hash_bs := sha256.Sum256(buf[10+len(ser.pub_der) : cur])
 	if sig, err := rsa.SignPKCS1v15(rand.Reader, ser.priv_key, crypto.SHA256,
 		hash_bs[:]); err != nil {
-		log.Printf("sign p/g/f fail: %s", err.Error())
+		glog.Errorf("sign p/g/f fail: %s", err.Error())
 		return nil
 	} else {
 		WriteN2(buf[6:], uint16(len(sig)))
@@ -179,23 +177,23 @@ func (ser *Server) newSession(pipe *StreamPipe) *Session {
 	cur += copy(buf[cur:], ser.enc_methods)
 
 	if _, err := pipe.Write(buf[:cur]); err != nil {
-		log.Printf("write pipe fail: %s", err.Error())
+		glog.V(1).Infof("write pipe fail: %s", err.Error())
 		return nil
 	}
 
 	// finihs cipher exchange
 	if _, err := io.ReadFull(pipe, buf[:4]); err != nil {
-		log.Printf("read cipher exchange finish fail: %s", err.Error())
+		glog.V(1).Infof("read cipher exchange finish fail: %s", err.Error())
 		return nil
 	}
 	e_size := ReadN2(buf)
 	md_size := ReadN2(buf[2:])
 	if e_size == 0 || md_size < 0 || e_size+md_size > uint16(len(buf)) {
-		log.Printf("invalid e/md size:%d %d", e_size, md_size)
+		glog.V(1).Infof("invalid e/md size:%d %d", e_size, md_size)
 		return nil
 	}
 	if _, err := io.ReadFull(pipe, buf[:e_size+md_size]); err != nil {
-		log.Printf("read cipher exchange finish body fail: %s", err.Error())
+		glog.V(1).Infof("read cipher exchange finish body fail: %s", err.Error())
 		return nil
 	}
 	method := string(buf[e_size : e_size+md_size])
@@ -207,13 +205,13 @@ func (ser *Server) newSession(pipe *StreamPipe) *Session {
 		}
 	}
 	if cipher_cfg == nil {
-		log.Printf("invalid method: %s", method)
+		glog.V(1).Infof("invalid method: %s", method)
 		return nil
 	}
 	ctx.CalcKey(new(big.Int).SetBytes(buf[:e_size]))
 	key, iv := ctx.MakeCryptoKeyIV(cipher_cfg.KeySize, cipher_cfg.IVSize)
 	if enc, dec, err := cipher_cfg.NewCipher(key, iv); err != nil {
-		log.Printf("new stream cipher fail: %s", err.Error())
+		glog.Errorf("new stream cipher fail: %s", err.Error())
 		return nil
 	} else {
 		pipe.SwitchCipher(enc, dec)
@@ -230,7 +228,7 @@ func (ser *Server) newSession(pipe *StreamPipe) *Session {
 func (ser *Server) clientLogin(ctx *CipherContext, pipe *StreamPipe) *Session {
 	buf := make([]byte, 4+32+32)
 	if _, err := io.ReadFull(pipe, buf[:4]); err != nil {
-		log.Printf("receive login req fail: %s", err.Error())
+		glog.V(1).Infof("receive login req fail: %s", err.Error())
 		return nil
 	}
 
@@ -242,7 +240,7 @@ func (ser *Server) clientLogin(ctx *CipherContext, pipe *StreamPipe) *Session {
 	user_size, passwd_size := buf[2], buf[3]
 	if user_size > 0 && user_size <= 32 && passwd_size > 0 && passwd_size <= 32 {
 		if _, err := io.ReadFull(pipe, buf[:user_size+passwd_size]); err != nil {
-			log.Printf("read login body fail: %s", err.Error())
+			glog.V(1).Infof("read login body fail: %s", err.Error())
 			return nil
 		}
 		user, passwd := string(buf[:user_size]), buf[user_size:user_size+passwd_size]
@@ -253,12 +251,12 @@ func (ser *Server) clientLogin(ctx *CipherContext, pipe *StreamPipe) *Session {
 			login_ok = B_TRUE
 			var err error
 			if s, err = ser.sessions.NewSession(ctx); err != nil {
-				log.Printf("new session fail: %s", err.Error())
+				glog.Errorf("new session fail: %s", err.Error())
 				return nil
 			}
 			s.Username = string(user)
 			if msg, err = s.Id.Bytes(); err != nil {
-				log.Printf("sessionId toBytes fail: %s", err.Error())
+				glog.Errorf("sessionId toBytes fail: %s", err.Error())
 				return nil
 			}
 		}
@@ -271,7 +269,7 @@ func (ser *Server) clientLogin(ctx *CipherContext, pipe *StreamPipe) *Session {
 	buf[3] = byte(len(msg))
 	copy(buf[4:], msg)
 	if _, err := pipe.Write(buf[:4+buf[3]]); err != nil {
-		log.Printf("write err rep fail: %s", err.Error())
+		glog.V(1).Infof("write err rep fail: %s", err.Error())
 		return nil
 	}
 	return s
@@ -300,7 +298,7 @@ func (ser *Server) reuseSession(pipe *StreamPipe, s_bs, rand_bs, hmac_bs []byte)
 	}
 
 	if _, err := pipe.Write(rep); err != nil {
-		log.Printf("write init rep fail: %s", err.Error())
+		glog.V(1).Infof("write init rep fail: %s", err.Error())
 		return nil
 	}
 	if do_init {
@@ -310,33 +308,37 @@ func (ser *Server) reuseSession(pipe *StreamPipe, s_bs, rand_bs, hmac_bs []byte)
 }
 
 func (ser *Server) clientLoop(user *Session, pipe *StreamPipe) {
-	log.Printf("start proxy: %s(%s)", user.Username, user.Id)
+	glog.V(1).Infof("start proxy: %s(%s)", user.Username, user.Id)
 	write_ch := make(chan []byte, 1024)
 	go func() {
 		for {
 			if data, ok := <-write_ch; ok {
 				if _, err := pipe.Write(data); err != nil {
-					log.Printf("write to client fail: %s", err.Error())
+					glog.V(1).Infof("write to client fail: %s", err.Error())
+					// TODO shutdown link
 				}
+			} else {
+				break
 			}
 		}
 	}()
+	defer close(write_ch)
 
 	conns := make(map[uint32]chan []byte)
 	var lock sync.RWMutex
 	buf := make([]byte, 65535)
 	for {
 		if _, err := io.ReadFull(pipe, buf[:4]); err != nil {
-			log.Printf("recv packet fail: %s", err.Error())
+			glog.V(1).Infof("recv packet fail: %s", err.Error())
 			return
 		} else {
 			if buf[0] != PROTO_MAGIC {
-				log.Printf("invalid magic: %d", buf[0])
+				glog.V(1).Infof("invalid magic: %d", buf[0])
 				return
 			}
 			pkt_size := ReadN2(buf[2:])
 			if _, err := io.ReadFull(pipe, buf[4:pkt_size+4]); err != nil {
-				log.Printf("recv packet fail: %s", err.Error())
+				glog.V(1).Infof("recv packet fail: %s", err.Error())
 				return
 			}
 			switch buf[1] {
@@ -348,7 +350,7 @@ func (ser *Server) clientLoop(user *Session, pipe *StreamPipe) {
 				if ch != nil {
 					ch <- Dump(buf[8 : pkt_size+4])
 				} else {
-					log.Printf("no such conn: %d", conn_id)
+					glog.V(1).Infof("no such conn: %d", conn_id)
 				}
 			case PACKET_NEW_CONN:
 				port := ReadN2(buf[6:])
@@ -385,19 +387,18 @@ func (ser *Server) copyRemote(read, write chan []byte, conn_id uint32, conn_type
 		var remote_addr net.TCPAddr
 		remote_addr.IP = net.IP(addr)
 		remote_addr.Port = int(port)
-		log.Printf("addr: %v %v", addr, remote_addr)
 		if conn, err := net.DialTCP("tcp", nil, &remote_addr); err == nil {
 			rconn = conn
 		} else {
-			log.Printf("conn %#v fail: %s", remote_addr, err.Error())
-		}
+            glog.V(1).Infof("conn %#v fail: %s", remote_addr, err.Error())
+        }
 	} else {
 		raddr := net.JoinHostPort(string(addr), fmt.Sprintf("%d", port))
 		if conn, err := net.Dial("tcp", raddr); err == nil {
 			rconn = conn.(*net.TCPConn)
 		} else {
-			log.Printf("conn %#v fail: %s", raddr, err.Error())
-		}
+            glog.V(1).Infof("conn %#v fail: %s", raddr, err.Error())
+        }
 	}
 	if rconn == nil {
 		return
@@ -414,11 +415,9 @@ func (ser *Server) copyRemote(read, write chan []byte, conn_id uint32, conn_type
 		for {
 			buf := bschan.CurBytes()
 			if n, err := rconn.Read(buf[8:]); err == nil {
-				log.Printf("recv from remote: %d", n)
 				WriteN2(buf[2:], uint16(n+4))
 				bschan.Send(n + 8)
 			} else {
-				log.Printf("remote closed")
 				bschan.Close()
 				return
 			}
@@ -429,14 +428,11 @@ for_loop:
 	for {
 		select {
 		case data, ok := <-read:
-			log.Printf("from cli: %v", data, ok)
 			if !ok {
 				return
 			}
 			if _, err := rconn.Write(data); err != nil {
 				break for_loop
-			} else {
-				log.Printf("write remote ok")
 			}
 		case data, ok := <-bschan.Chan:
 			if !ok {

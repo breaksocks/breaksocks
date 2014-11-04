@@ -3,7 +3,7 @@ package main
 import (
 	"flag"
 	"github.com/breaksocks/breaksocks/tunnel"
-	"log"
+	"github.com/golang/glog"
 	"net"
 	"unsafe"
 )
@@ -30,24 +30,26 @@ var cfg_file = flag.String("conf", "config.yaml", "config file path")
 
 func main() {
 	flag.Parse()
+	defer glog.flush()
+
 	if cfg, err := tunnel.LoadClientConfig(*cfg_file); err != nil {
-		log.Printf("%#v", err)
-		log.Fatal(err)
+		glog.Fatal(err)
 	} else if cli, err := tunnel.NewClient(cfg); err != nil {
-		log.Fatal(err)
+		glog.Fatal(err)
 	} else if err := cli.Init(); err != nil {
-		log.Fatal(err)
+		glog.Fatal(err)
 	} else {
 		l, err := net.Listen("tcp", cfg.RedirListenAddr)
 		if err != nil {
-			log.Fatal(err)
+			glog.Fatal(err)
 		}
 
+		defer glog.Flush()
 		//addr := []byte{115, 239, 210, 27}
 		for {
 			conn, err := l.(*net.TCPListener).AcceptTCP()
 			if err != nil {
-				log.Fatal(err)
+				glog.Fatal(err)
 				return
 			}
 
@@ -61,12 +63,12 @@ func main() {
 					port = int(C.ntohs(C.uint16_t(addr_in.sin_port)))
 					tunnel.WriteN4(addr, uint32(C.ntohl(C.uint32_t(addr_in.sin_addr.s_addr))))
 				} else {
-					log.Fatal("get dest addr fail")
+					glog.Fatal("get dest addr fail")
 				}
 			} else {
-				log.Fatal("get conn file fail: %s", err)
+				glog.Fatal("get conn file fail: %s", err)
 			}
-			log.Printf("got cli: %v (%v, %d)", conn.LocalAddr(), addr, port)
+			glog.V(1).Infof("got cli: %v (%v, %d)", conn.LocalAddr(), addr, port)
 			go cli.DoIPProxy(addr, port, conn)
 		}
 	}

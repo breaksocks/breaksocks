@@ -6,8 +6,8 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"fmt"
+	"github.com/golang/glog"
 	"io"
-	"log"
 	"math/big"
 	"net"
 	"strings"
@@ -29,7 +29,7 @@ type Client struct {
 }
 
 func NewClient(config *ClientConfig) (*Client, error) {
-	log.Printf("%#v", config)
+	glog.V(1).Infof("%#v", config)
 	cli := new(Client)
 	var err error
 	if config.GlobalEncryptMethod != "" {
@@ -61,9 +61,7 @@ func (cli *Client) Init() error {
 	if cli.g_cipher != nil {
 		enc, dec, err := cli.g_cipher.NewCipher()
 		if err != nil {
-			log.Printf("kl: %d, ivl: %d, %#v", len(cli.g_cipher.Key), len(cli.g_cipher.IV),
-				cli.g_cipher.Config)
-			log.Fatalf("make global enc/dec fail: %s", err.Error())
+			glog.Fatalf("make global enc/dec fail: %s", err.Error())
 		}
 		cli.pipe.SwitchCipher(enc, dec)
 	}
@@ -92,12 +90,12 @@ func (cli *Client) Init() error {
 		buf := make([]byte, 65535)
 		for {
 			if _, err := io.ReadFull(cli.pipe, buf[:4]); err != nil {
-				log.Printf("read from server fail: %s", err.Error())
+				glog.Errorf("read from server fail: %s", err.Error())
 				break
 			} else {
 				pkt_size := ReadN2(buf[2:])
 				if _, err := io.ReadFull(cli.pipe, buf[4:pkt_size+4]); err != nil {
-					log.Printf("recv from server fail: %s", err.Error())
+					glog.Errorf("recv from server fail: %s", err.Error())
 					break
 				}
 				conn_id := ReadN4(buf[4:])
@@ -117,13 +115,13 @@ func (cli *Client) Init() error {
 func (cli *Client) startup() error {
 	req_header := []byte{PROTO_MAGIC, 0, 0, 0}
 	if _, err := cli.pipe.Write(req_header[:]); err != nil {
-		log.Printf("send startup req fail: %s", err.Error())
+		glog.Errorf("send startup req fail: %s", err.Error())
 		return err
 	}
 
 	var header [10]byte
 	if _, err := io.ReadFull(cli.pipe, header[:]); err != nil {
-		log.Printf("recv startup rep header fail: %s", err.Error())
+		glog.Errorf("recv startup rep header fail: %s", err.Error())
 		return err
 	}
 
@@ -137,7 +135,7 @@ func (cli *Client) startup() error {
 	body_size := pub_size + p_size + f_size + sig_size + mds_size + 1
 	body := make([]byte, body_size)
 	if _, err := io.ReadFull(cli.pipe, body); err != nil {
-		log.Printf("recv startup rep body fail: %s", err.Error())
+		glog.Errorf("recv startup rep body fail: %s", err.Error())
 		return err
 	}
 
@@ -146,25 +144,25 @@ func (cli *Client) startup() error {
 		if rsa_pub, ok := pubk.(*rsa.PublicKey); ok {
 			pub_key = rsa_pub
 		} else {
-			log.Printf("invalid pubkey: %#v", pubk)
+			glog.Errorf("invalid pubkey: %#v", pubk)
 			return fmt.Errorf("invalid server pubkey")
 		}
 	} else {
-		log.Printf("parse pubkey fail: %s", err.Error())
+		glog.Errorf("parse pubkey fail: %s", err.Error())
 		return err
 	}
 
 	dgst := sha256.Sum256(body[pub_size : pub_size+p_size+1+f_size])
 	sig := body[body_size-mds_size-sig_size : body_size-mds_size]
 	if err := rsa.VerifyPKCS1v15(pub_key, crypto.SHA256, dgst[:], sig); err != nil {
-		log.Printf("verify sig fail: %s", err.Error())
+		glog.Errorf("verify sig fail: %s", err.Error())
 		return err
 	}
 	p, g := body[pub_size:pub_size+p_size], body[pub_size+p_size]
 	f := body[pub_size+p_size+1 : pub_size+p_size+1+f_size]
 	cli.cipher_ctx = MakeCipherContext(new(big.Int).SetBytes(p), int(g))
 	if _, err := cli.cipher_ctx.MakeE(); err != nil {
-		log.Printf("make e fail: %s", err.Error())
+		glog.Errorf("make e fail: %s", err.Error())
 		return err
 	}
 	cli.cipher_ctx.CalcKey(new(big.Int).SetBytes(f))
@@ -183,13 +181,13 @@ func (cli *Client) startup() error {
 		}
 	}
 	if method == "" {
-		log.Printf("enc method not match, server(%s) local(%s)",
+		glog.Errorf("enc method not match, server(%s) local(%s)",
 			strings.Join(mds, ", "), strings.Join(cli.config.LinkEncryptMethods, ", "))
 		return fmt.Errorf("enc method not match")
 	}
 	cli.cipher_cfg = GetCipherConfig(method)
 	if cli.cipher_cfg == nil {
-		log.Printf("invalid cipher cfg: %s", method)
+		glog.Errorf("invalid cipher cfg: %s", method)
 		return fmt.Errorf("get cipher fail")
 	}
 
@@ -200,13 +198,13 @@ func (cli *Client) startup() error {
 	copy(rep[4:], e_bs)
 	copy(rep[4+len(e_bs):], []byte(method))
 	if _, err := cli.pipe.Write(rep); err != nil {
-		log.Printf("write cipher exchange rep fail: %s", err.Error())
+		glog.Errorf("write cipher exchange rep fail: %s", err.Error())
 		return err
 	}
 
 	key, iv := cli.cipher_ctx.MakeCryptoKeyIV(cli.cipher_cfg.KeySize, cli.cipher_cfg.IVSize)
 	if enc, dec, err := cli.cipher_cfg.NewCipher(key, iv); err != nil {
-		log.Printf("new stream cipher fail: %s", err.Error())
+		glog.Errorf("new stream cipher fail: %s", err.Error())
 		return err
 	} else {
 		cli.pipe.SwitchCipher(enc, dec)
@@ -224,29 +222,29 @@ func (cli *Client) login() error {
 	copy(buf[4:], u)
 	copy(buf[4+len(u):], p)
 	if _, err := cli.pipe.Write(buf); err != nil {
-		log.Printf("send login req fail: %s", err.Error())
+		glog.Errorf("send login req fail: %s", err.Error())
 		return err
 	}
 
 	if _, err := io.ReadFull(cli.pipe, buf[:4]); err != nil {
-		log.Printf("read login rep fail: %s", err.Error())
+		glog.Errorf("read login rep fail: %s", err.Error())
 		return err
 	}
 	if buf[3] == 0 {
-		log.Printf("login rep with 0 body")
+		glog.Errorf("login rep with 0 body")
 		return fmt.Errorf("invalid login rep")
 	}
 	body := make([]byte, buf[3])
 	if _, err := io.ReadFull(cli.pipe, body); err != nil {
-		log.Printf("recv login rep body fail: %s", err.Error())
+		glog.Errorf("recv login rep body fail: %s", err.Error())
 		return err
 	}
 
 	if buf[2] == B_TRUE {
 		cli.session_id = SessionIdFromBytes(body)
-		log.Printf("login ok, sessionId: %s", cli.session_id)
+		glog.Errorf("login ok, sessionId: %s", cli.session_id)
 	} else {
-		log.Printf("login fail: %s", string(body))
+		glog.Errorf("login fail: %s", string(body))
 		return fmt.Errorf("login fail")
 	}
 
