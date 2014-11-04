@@ -242,7 +242,7 @@ func (cli *Client) login() error {
 
 	if buf[2] == B_TRUE {
 		cli.session_id = SessionIdFromBytes(body)
-		glog.Errorf("login ok, sessionId: %s", cli.session_id)
+		glog.Infof("login ok, sessionId: %s", cli.session_id)
 	} else {
 		glog.Errorf("login fail: %s", string(body))
 		return fmt.Errorf("login fail")

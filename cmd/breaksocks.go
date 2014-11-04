@@ -30,7 +30,6 @@ var cfg_file = flag.String("conf", "config.yaml", "config file path")
 
 func main() {
 	flag.Parse()
-	defer glog.flush()
 
 	if cfg, err := tunnel.LoadClientConfig(*cfg_file); err != nil {
 		glog.Fatal(err)
@@ -44,7 +43,6 @@ func main() {
 			glog.Fatal(err)
 		}
 
-		defer glog.Flush()
 		//addr := []byte{115, 239, 210, 27}
 		for {
 			conn, err := l.(*net.TCPListener).AcceptTCP()
@@ -56,8 +54,6 @@ func main() {
 			var addr []byte = []byte{0, 0, 0, 0}
 			var port int
 			if f, err := conn.File(); err == nil {
-				defer f.Close()
-
 				var addr_in C.struct_sockaddr_in
 				if C.getdestaddr(C.int(f.Fd()), (*C.struct_sockaddr_in)(unsafe.Pointer(&addr_in))) == 0 {
 					port = int(C.ntohs(C.uint16_t(addr_in.sin_port)))
@@ -65,6 +61,7 @@ func main() {
 				} else {
 					glog.Fatal("get dest addr fail")
 				}
+				f.Close()
 			} else {
 				glog.Fatal("get conn file fail: %s", err)
 			}
