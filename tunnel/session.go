@@ -1,10 +1,7 @@
 package tunnel
 
 import (
-	"crypto/md5"
-	"crypto/rand"
 	"encoding/base64"
-	"time"
 )
 
 type SessionId string
@@ -19,24 +16,6 @@ func (sid SessionId) Bytes() ([]byte, error) {
 
 func (sid SessionId) size() int {
 	return len(sid)
-}
-
-func NewSessionId() (SessionId, error) {
-	buf := make([]byte, 16)
-
-	now := time.Now()
-	if tbin, err := now.MarshalBinary(); err != nil {
-		return "", err
-	} else {
-		copy(buf[:12], tbin[1:13])
-	}
-
-	if _, err := rand.Read(buf[12:]); err != nil {
-		return "", err
-	}
-
-	session_bin := md5.Sum(buf)
-	return SessionIdFromBytes(session_bin[:]), nil
 }
 
 type Session struct {

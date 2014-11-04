@@ -219,7 +219,7 @@ func (ser *Server) newSession(pipe *StreamPipe) *Session {
 		pipe.SwitchCipher(enc, dec)
 	}
 
-	s := ser.clientLogin(pipe)
+	s := ser.clientLogin(ctx, pipe)
 	if s != nil {
 		s.CipherCtx = ctx
 		s.CipherConfig = cipher_cfg
@@ -227,7 +227,7 @@ func (ser *Server) newSession(pipe *StreamPipe) *Session {
 	return s
 }
 
-func (ser *Server) clientLogin(pipe *StreamPipe) *Session {
+func (ser *Server) clientLogin(ctx *CipherContext, pipe *StreamPipe) *Session {
 	buf := make([]byte, 4+32+32)
 	if _, err := io.ReadFull(pipe, buf[:4]); err != nil {
 		log.Printf("receive login req fail: %s", err.Error())
@@ -252,7 +252,7 @@ func (ser *Server) clientLogin(pipe *StreamPipe) *Session {
 		} else {
 			login_ok = B_TRUE
 			var err error
-			if s, err = ser.sessions.NewSession(); err != nil {
+			if s, err = ser.sessions.NewSession(ctx); err != nil {
 				log.Printf("new session fail: %s", err.Error())
 				return nil
 			}

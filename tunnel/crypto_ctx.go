@@ -1,9 +1,11 @@
 package tunnel
 
 import (
+	"crypto/md5"
 	"crypto/rand"
 	"fmt"
 	"math/big"
+	"time"
 )
 
 var group5_p *big.Int = new(big.Int).SetBytes([]byte{
@@ -96,4 +98,28 @@ func (ctx *CipherContext) CalcKey(ef *big.Int) {
 func (ctx *CipherContext) MakeCryptoKeyIV(key_size, iv_size int) ([]byte, []byte) {
 	ctx.CryptoKey, ctx.IV = MakeCryptoKeyIV(ctx.Key.Bytes(), key_size, iv_size)
 	return ctx.CryptoKey, ctx.IV
+}
+
+func (ctx *CipherContext) MakeSessionId() (SessionId, error) {
+	p, y, f := ctx.P.Bytes(), ctx.XY.Bytes(), ctx.EF.Bytes()
+	buf := make([]byte, 25+len(p)+len(y)+len(f))
+
+	now := time.Now()
+	if tbin, err := now.MarshalBinary(); err != nil {
+		return "", err
+	} else {
+		copy(buf[:12], tbin[1:13])
+	}
+
+	if _, err := rand.Read(buf[12:24]); err != nil {
+		return "", err
+	}
+	cur := 24
+	cur += copy(buf[cur:], p)
+	cur += copy(buf[cur:], y)
+	cur += copy(buf[cur:], f)
+	buf[cur] = byte(ctx.G)
+
+	session_bin := md5.Sum(buf)
+	return SessionIdFromBytes(session_bin[:]), nil
 }

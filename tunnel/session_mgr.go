@@ -15,8 +15,8 @@ func NewSessionManager() *SessionManager {
 	return mgr
 }
 
-func (mgr *SessionManager) NewSession() (*Session, error) {
-	session_id, err := NewSessionId()
+func (mgr *SessionManager) NewSession(ctx *CipherContext) (*Session, error) {
+	session_id, err := ctx.MakeSessionId()
 	if err != nil {
 		return nil, err
 	}
