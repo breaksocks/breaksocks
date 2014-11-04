@@ -94,7 +94,7 @@ func (cm *ConnManager) DoProxy(conn_type byte, addr []byte, port int, rw io.Read
 }
 
 func (cm *ConnManager) copyConn(sc *SockChan, rw io.ReadWriteCloser) {
-	bschan := NewBytesChan(8, 65535, func(bs []byte) {
+	bschan := NewBytesChan(8, 1400, func(bs []byte) {
 		bs[0] = PROTO_MAGIC
 		bs[1] = PACKET_PROXY
 		WriteN4(bs[4:], sc.id)
