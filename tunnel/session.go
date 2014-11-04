@@ -1,10 +1,9 @@
-package session
+package tunnel
 
 import (
 	"crypto/md5"
 	"crypto/rand"
 	"encoding/base64"
-	"github.com/breaksocks/breaksocks/crypto"
 	"time"
 )
 
@@ -43,6 +42,6 @@ func NewSessionId() (SessionId, error) {
 type Session struct {
 	Id           SessionId
 	Username     string
-	CipherCtx    *crypto.CipherContext
-	CipherConfig *crypto.CipherConfig
+	CipherCtx    *CipherContext
+	CipherConfig *CipherConfig
 }

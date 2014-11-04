@@ -1,15 +1,11 @@
-package client
+package tunnel
 
 import (
-	gocrypto "crypto"
+	"crypto"
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
 	"fmt"
-	"github.com/breaksocks/breaksocks/crypto"
-	"github.com/breaksocks/breaksocks/protocol"
-	"github.com/breaksocks/breaksocks/session"
-	"github.com/breaksocks/breaksocks/utils"
 	"io"
 	"log"
 	"math/big"
@@ -18,26 +14,26 @@ import (
 )
 
 type Client struct {
-	user   *session.Session
-	config *utils.ClientConfig
+	user   *Session
+	config *ClientConfig
 
-	g_cipher  *crypto.GlobalCipherConfig
+	g_cipher  *GlobalCipherConfig
 	pipe_conn *net.TCPConn
-	pipe      *crypto.StreamPipe
+	pipe      *StreamPipe
 
-	cipher_cfg *crypto.CipherConfig
-	cipher_ctx *crypto.CipherContext
-	session_id session.SessionId
+	cipher_cfg *CipherConfig
+	cipher_ctx *CipherContext
+	session_id SessionId
 	conn_mgr   *ConnManager
 	write_ch   chan []byte
 }
 
-func NewClient(config *utils.ClientConfig) (*Client, error) {
+func NewClient(config *ClientConfig) (*Client, error) {
 	log.Printf("%#v", config)
 	cli := new(Client)
 	var err error
 	if config.GlobalEncryptMethod != "" {
-		if cli.g_cipher, err = crypto.LoadGlobalCipherConfig(
+		if cli.g_cipher, err = LoadGlobalCipherConfig(
 			config.GlobalEncryptMethod, []byte(config.GlobalEncryptPassword)); err != nil {
 			return nil, err
 		}
@@ -61,7 +57,7 @@ func (cli *Client) Init() error {
 	}
 	cli.pipe_conn.SetNoDelay(true)
 
-	cli.pipe = crypto.NewStreamPipe(cli.pipe_conn)
+	cli.pipe = NewStreamPipe(cli.pipe_conn)
 	if cli.g_cipher != nil {
 		enc, dec, err := cli.g_cipher.NewCipher()
 		if err != nil {
@@ -99,16 +95,16 @@ func (cli *Client) Init() error {
 				log.Printf("read from server fail: %s", err.Error())
 				break
 			} else {
-				pkt_size := utils.ReadN2(buf[2:])
+				pkt_size := ReadN2(buf[2:])
 				if _, err := io.ReadFull(cli.pipe, buf[4:pkt_size+4]); err != nil {
 					log.Printf("recv from server fail: %s", err.Error())
 					break
 				}
-				conn_id := utils.ReadN4(buf[4:])
+				conn_id := ReadN4(buf[4:])
 				switch buf[1] {
-				case protocol.PACKET_PROXY:
+				case PACKET_PROXY:
 					cli.conn_mgr.WriteToLocalConn(conn_id, buf[8:pkt_size+4])
-				case protocol.PACKET_CLOSE_CONN:
+				case PACKET_CLOSE_CONN:
 					cli.conn_mgr.CloseConn(conn_id)
 				}
 			}
@@ -119,7 +115,7 @@ func (cli *Client) Init() error {
 }
 
 func (cli *Client) startup() error {
-	req_header := []byte{protocol.PROTO_MAGIC, 0, 0, 0}
+	req_header := []byte{PROTO_MAGIC, 0, 0, 0}
 	if _, err := cli.pipe.Write(req_header[:]); err != nil {
 		log.Printf("send startup req fail: %s", err.Error())
 		return err
@@ -131,9 +127,9 @@ func (cli *Client) startup() error {
 		return err
 	}
 
-	pub_size, p_size := utils.ReadN2(header[:]), utils.ReadN2(header[2:])
-	f_size, sig_size := utils.ReadN2(header[4:]), utils.ReadN2(header[6:])
-	mds_size := utils.ReadN2(header[8:])
+	pub_size, p_size := ReadN2(header[:]), ReadN2(header[2:])
+	f_size, sig_size := ReadN2(header[4:]), ReadN2(header[6:])
+	mds_size := ReadN2(header[8:])
 	if pub_size == 0 || p_size == 0 || f_size == 0 || sig_size == 0 || mds_size == 0 {
 		return fmt.Errorf("invalid size pub:%d p:%d f:%d sig:%d mds:%d",
 			pub_size, p_size, f_size, sig_size, mds_size)
@@ -160,13 +156,13 @@ func (cli *Client) startup() error {
 
 	dgst := sha256.Sum256(body[pub_size : pub_size+p_size+1+f_size])
 	sig := body[body_size-mds_size-sig_size : body_size-mds_size]
-	if err := rsa.VerifyPKCS1v15(pub_key, gocrypto.SHA256, dgst[:], sig); err != nil {
+	if err := rsa.VerifyPKCS1v15(pub_key, crypto.SHA256, dgst[:], sig); err != nil {
 		log.Printf("verify sig fail: %s", err.Error())
 		return err
 	}
 	p, g := body[pub_size:pub_size+p_size], body[pub_size+p_size]
 	f := body[pub_size+p_size+1 : pub_size+p_size+1+f_size]
-	cli.cipher_ctx = crypto.MakeCipherContext(new(big.Int).SetBytes(p), int(g))
+	cli.cipher_ctx = MakeCipherContext(new(big.Int).SetBytes(p), int(g))
 	if _, err := cli.cipher_ctx.MakeE(); err != nil {
 		log.Printf("make e fail: %s", err.Error())
 		return err
@@ -191,7 +187,7 @@ func (cli *Client) startup() error {
 			strings.Join(mds, ", "), strings.Join(cli.config.LinkEncryptMethods, ", "))
 		return fmt.Errorf("enc method not match")
 	}
-	cli.cipher_cfg = crypto.GetCipherConfig(method)
+	cli.cipher_cfg = GetCipherConfig(method)
 	if cli.cipher_cfg == nil {
 		log.Printf("invalid cipher cfg: %s", method)
 		return fmt.Errorf("get cipher fail")
@@ -199,8 +195,8 @@ func (cli *Client) startup() error {
 
 	e_bs := cli.cipher_ctx.EF.Bytes()
 	rep := make([]byte, 4+len(e_bs)+len(method))
-	utils.WriteN2(rep, uint16(len(e_bs)))
-	utils.WriteN2(rep[2:], uint16(len(method)))
+	WriteN2(rep, uint16(len(e_bs)))
+	WriteN2(rep[2:], uint16(len(method)))
 	copy(rep[4:], e_bs)
 	copy(rep[4+len(e_bs):], []byte(method))
 	if _, err := cli.pipe.Write(rep); err != nil {
@@ -222,7 +218,7 @@ func (cli *Client) startup() error {
 func (cli *Client) login() error {
 	u, p := []byte(cli.config.Username), []byte(cli.config.Password)
 	buf := make([]byte, 4+len(u)+len(p))
-	utils.WriteN2(buf, protocol.PROTO_VERSION)
+	WriteN2(buf, PROTO_VERSION)
 	buf[2] = byte(len(u))
 	buf[3] = byte(len(p))
 	copy(buf[4:], u)
@@ -246,8 +242,8 @@ func (cli *Client) login() error {
 		return err
 	}
 
-	if buf[2] == protocol.B_TRUE {
-		cli.session_id = session.SessionIdFromBytes(body)
+	if buf[2] == B_TRUE {
+		cli.session_id = SessionIdFromBytes(body)
 		log.Printf("login ok, sessionId: %s", cli.session_id)
 	} else {
 		log.Printf("login fail: %s", string(body))
@@ -261,9 +257,9 @@ func (cli *Client) Close() {
 }
 
 func (cli *Client) DoDomainProxy(domain string, port int, rw io.ReadWriteCloser) {
-	cli.conn_mgr.DoProxy(protocol.PROTO_ADDR_DOMAIN, []byte(domain), port, rw)
+	cli.conn_mgr.DoProxy(PROTO_ADDR_DOMAIN, []byte(domain), port, rw)
 }
 
 func (cli *Client) DoIPProxy(addr []byte, port int, rw io.ReadWriteCloser) {
-	cli.conn_mgr.DoProxy(protocol.PROTO_ADDR_IP, addr, port, rw)
+	cli.conn_mgr.DoProxy(PROTO_ADDR_IP, addr, port, rw)
 }

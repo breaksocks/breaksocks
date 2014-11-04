@@ -1,8 +1,4 @@
-package server
-
-import (
-	"github.com/breaksocks/breaksocks/utils"
-)
+package tunnel
 
 type UserConfig struct {
 	Password string
@@ -24,7 +20,7 @@ func GetUserConfigs(path string) (*UserConfigs, error) {
 
 func (cfgs *UserConfigs) Reload() error {
 	new_pass := make(map[string]*UserConfig)
-	if err := utils.LoadYamlConfig(cfgs.path, &new_pass); err != nil {
+	if err := LoadYamlConfig(cfgs.path, &new_pass); err != nil {
 		return err
 	}
 

@@ -1,4 +1,4 @@
-package protocol
+package tunnel
 
 const (
 	B_TRUE  byte = 1

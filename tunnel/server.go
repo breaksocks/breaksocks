@@ -1,17 +1,13 @@
-package server
+package tunnel
 
 import (
-	gocrypto "crypto"
+	"crypto"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
 	"fmt"
-	"github.com/breaksocks/breaksocks/crypto"
-	"github.com/breaksocks/breaksocks/protocol"
-	"github.com/breaksocks/breaksocks/session"
-	"github.com/breaksocks/breaksocks/utils"
 	"io"
 	"log"
 	"math/big"
@@ -22,19 +18,19 @@ import (
 )
 
 type Server struct {
-	sessions  *session.SessionManager
-	config    *utils.ServerConfig
+	sessions  *SessionManager
+	config    *ServerConfig
 	user_cfgs *UserConfigs
 
 	priv_key    *rsa.PrivateKey
 	pub_der     []byte
-	g_cipher    *crypto.GlobalCipherConfig
+	g_cipher    *GlobalCipherConfig
 	enc_methods []byte
 
 	listenser *net.TCPListener
 }
 
-func NewServer(config *utils.ServerConfig) (*Server, error) {
+func NewServer(config *ServerConfig) (*Server, error) {
 	server := new(Server)
 	var err error
 
@@ -43,10 +39,10 @@ func NewServer(config *utils.ServerConfig) (*Server, error) {
 	}
 	server.enc_methods = []byte(strings.Join(config.LinkEncryptMethods, ","))
 
-	if server.priv_key, err = crypto.LoadRSAPrivateKey(config.KeyPath); err != nil {
+	if server.priv_key, err = LoadRSAPrivateKey(config.KeyPath); err != nil {
 		if os.IsNotExist(err) {
 			log.Printf("generating new private key(RSA 2048bits) ...")
-			if server.priv_key, err = crypto.GenerateRSAKey(2048, config.KeyPath); err != nil {
+			if server.priv_key, err = GenerateRSAKey(2048, config.KeyPath); err != nil {
 				return nil, err
 			}
 		} else {
@@ -58,7 +54,7 @@ func NewServer(config *utils.ServerConfig) (*Server, error) {
 	}
 
 	if config.GlobalEncryptMethod != "" {
-		if server.g_cipher, err = crypto.LoadGlobalCipherConfig(
+		if server.g_cipher, err = LoadGlobalCipherConfig(
 			config.GlobalEncryptMethod, []byte(config.GlobalEncryptPassword)); err != nil {
 			return nil, err
 		}
@@ -75,7 +71,7 @@ func NewServer(config *utils.ServerConfig) (*Server, error) {
 		return nil, err
 	}
 
-	server.sessions = session.NewSessionManager()
+	server.sessions = NewSessionManager()
 	server.config = config
 	return server, nil
 }
@@ -93,7 +89,7 @@ func (ser *Server) Run() {
 func (ser *Server) processClient(conn *net.TCPConn) {
 	defer conn.Close()
 
-	pipe := crypto.NewStreamPipe(conn)
+	pipe := NewStreamPipe(conn)
 	if ser.g_cipher != nil {
 		enc, dec, err := ser.g_cipher.NewCipher()
 		if err != nil {
@@ -114,7 +110,7 @@ func (ser *Server) processClient(conn *net.TCPConn) {
 	ser.clientLoop(user, pipe)
 }
 
-func (ser *Server) clientStartup(pipe *crypto.StreamPipe) *session.Session {
+func (ser *Server) clientStartup(pipe *StreamPipe) *Session {
 	// cipher exchange && session cipher switch
 	header := make([]byte, 4)
 	if _, err := io.ReadFull(pipe, header); err != nil {
@@ -122,7 +118,7 @@ func (ser *Server) clientStartup(pipe *crypto.StreamPipe) *session.Session {
 		return nil
 	}
 
-	if header[0] != protocol.PROTO_MAGIC {
+	if header[0] != PROTO_MAGIC {
 		log.Printf("reveiced a invalid magic: %d", header[0])
 		return nil
 	}
@@ -146,8 +142,8 @@ func (ser *Server) clientStartup(pipe *crypto.StreamPipe) *session.Session {
 		body[header[1]+header[2]:])
 }
 
-func (ser *Server) newSession(pipe *crypto.StreamPipe) *session.Session {
-	ctx, err := crypto.NewCipherContext(5)
+func (ser *Server) newSession(pipe *StreamPipe) *Session {
+	ctx, err := NewCipherContext(5)
 	if err != nil {
 		log.Printf("create cipher context fail: %s", err.Error())
 		return nil
@@ -160,10 +156,10 @@ func (ser *Server) newSession(pipe *crypto.StreamPipe) *session.Session {
 	p_bs, f_bs := ctx.P.Bytes(), f.Bytes()
 
 	buf := make([]byte, len(ser.pub_der)+len(p_bs)+len(f_bs)+len(ser.enc_methods)+2048)
-	utils.WriteN2(buf, uint16(len(ser.pub_der)))
-	utils.WriteN2(buf[2:], uint16(len(p_bs)))
-	utils.WriteN2(buf[4:], uint16(len(f_bs)))
-	utils.WriteN2(buf[8:], uint16(len(ser.enc_methods)))
+	WriteN2(buf, uint16(len(ser.pub_der)))
+	WriteN2(buf[2:], uint16(len(p_bs)))
+	WriteN2(buf[4:], uint16(len(f_bs)))
+	WriteN2(buf[8:], uint16(len(ser.enc_methods)))
 	cur := 10
 	cur += copy(buf[cur:], ser.pub_der)
 	cur += copy(buf[cur:], p_bs)
@@ -172,12 +168,12 @@ func (ser *Server) newSession(pipe *crypto.StreamPipe) *session.Session {
 	cur += copy(buf[cur:], f_bs)
 
 	hash_bs := sha256.Sum256(buf[10+len(ser.pub_der) : cur])
-	if sig, err := rsa.SignPKCS1v15(rand.Reader, ser.priv_key, gocrypto.SHA256,
+	if sig, err := rsa.SignPKCS1v15(rand.Reader, ser.priv_key, crypto.SHA256,
 		hash_bs[:]); err != nil {
 		log.Printf("sign p/g/f fail: %s", err.Error())
 		return nil
 	} else {
-		utils.WriteN2(buf[6:], uint16(len(sig)))
+		WriteN2(buf[6:], uint16(len(sig)))
 		cur += copy(buf[cur:], sig)
 	}
 	cur += copy(buf[cur:], ser.enc_methods)
@@ -192,8 +188,8 @@ func (ser *Server) newSession(pipe *crypto.StreamPipe) *session.Session {
 		log.Printf("read cipher exchange finish fail: %s", err.Error())
 		return nil
 	}
-	e_size := utils.ReadN2(buf)
-	md_size := utils.ReadN2(buf[2:])
+	e_size := ReadN2(buf)
+	md_size := ReadN2(buf[2:])
 	if e_size == 0 || md_size < 0 || e_size+md_size > uint16(len(buf)) {
 		log.Printf("invalid e/md size:%d %d", e_size, md_size)
 		return nil
@@ -203,10 +199,10 @@ func (ser *Server) newSession(pipe *crypto.StreamPipe) *session.Session {
 		return nil
 	}
 	method := string(buf[e_size : e_size+md_size])
-	var cipher_cfg *crypto.CipherConfig
+	var cipher_cfg *CipherConfig
 	for _, md := range ser.config.LinkEncryptMethods {
 		if md == method {
-			cipher_cfg = crypto.GetCipherConfig(method)
+			cipher_cfg = GetCipherConfig(method)
 			break
 		}
 	}
@@ -231,7 +227,7 @@ func (ser *Server) newSession(pipe *crypto.StreamPipe) *session.Session {
 	return s
 }
 
-func (ser *Server) clientLogin(pipe *crypto.StreamPipe) *session.Session {
+func (ser *Server) clientLogin(pipe *StreamPipe) *Session {
 	buf := make([]byte, 4+32+32)
 	if _, err := io.ReadFull(pipe, buf[:4]); err != nil {
 		log.Printf("receive login req fail: %s", err.Error())
@@ -239,9 +235,9 @@ func (ser *Server) clientLogin(pipe *crypto.StreamPipe) *session.Session {
 	}
 
 	// rep
-	login_ok := protocol.B_FALSE
+	login_ok := B_FALSE
 	var msg []byte
-	var s *session.Session
+	var s *Session
 
 	user_size, passwd_size := buf[2], buf[3]
 	if user_size > 0 && user_size <= 32 && passwd_size > 0 && passwd_size <= 32 {
@@ -254,7 +250,7 @@ func (ser *Server) clientLogin(pipe *crypto.StreamPipe) *session.Session {
 		if user_cfg == nil || user_cfg.Password != string(passwd) {
 			msg = []byte("invalid username/password")
 		} else {
-			login_ok = protocol.B_TRUE
+			login_ok = B_TRUE
 			var err error
 			if s, err = ser.sessions.NewSession(); err != nil {
 				log.Printf("new session fail: %s", err.Error())
@@ -270,7 +266,7 @@ func (ser *Server) clientLogin(pipe *crypto.StreamPipe) *session.Session {
 		msg = []byte("user/passwd size invalid")
 	}
 
-	utils.WriteN2(buf, protocol.PROTO_VERSION)
+	WriteN2(buf, PROTO_VERSION)
 	buf[2] = login_ok
 	buf[3] = byte(len(msg))
 	copy(buf[4:], msg)
@@ -288,18 +284,18 @@ func CheckMAC(message, messageMAC, key []byte) bool {
 	return hmac.Equal(messageMAC, expectedMAC)
 }
 
-func (ser *Server) reuseSession(pipe *crypto.StreamPipe, s_bs, rand_bs, hmac_bs []byte) *session.Session {
-	sessionId := session.SessionIdFromBytes(s_bs)
+func (ser *Server) reuseSession(pipe *StreamPipe, s_bs, rand_bs, hmac_bs []byte) *Session {
+	sessionId := SessionIdFromBytes(s_bs)
 	s := ser.sessions.GetSession(sessionId)
 	if s == nil {
 		return nil
 	}
 
 	do_init := false
-	rep := []byte{protocol.B_TRUE, protocol.REUSE_SUCCESS}
+	rep := []byte{B_TRUE, REUSE_SUCCESS}
 	if !CheckMAC(rand_bs, hmac_bs, s.CipherCtx.CryptoKey) {
-		rep[0] = protocol.B_FALSE
-		rep[1] = protocol.REUSE_FAIL_START_CIPHER_EXCHANGE | protocol.REUSE_FAIL_HMAC_FAIL
+		rep[0] = B_FALSE
+		rep[1] = REUSE_FAIL_START_CIPHER_EXCHANGE | REUSE_FAIL_HMAC_FAIL
 		do_init = true
 	}
 
@@ -313,7 +309,7 @@ func (ser *Server) reuseSession(pipe *crypto.StreamPipe, s_bs, rand_bs, hmac_bs 
 	return s
 }
 
-func (ser *Server) clientLoop(user *session.Session, pipe *crypto.StreamPipe) {
+func (ser *Server) clientLoop(user *Session, pipe *StreamPipe) {
 	log.Printf("start proxy: %s(%s)", user.Username, user.Id)
 	write_ch := make(chan []byte, 1024)
 	go func() {
@@ -334,31 +330,31 @@ func (ser *Server) clientLoop(user *session.Session, pipe *crypto.StreamPipe) {
 			log.Printf("recv packet fail: %s", err.Error())
 			return
 		} else {
-			if buf[0] != protocol.PROTO_MAGIC {
+			if buf[0] != PROTO_MAGIC {
 				log.Printf("invalid magic: %d", buf[0])
 				return
 			}
-			pkt_size := utils.ReadN2(buf[2:])
+			pkt_size := ReadN2(buf[2:])
 			if _, err := io.ReadFull(pipe, buf[4:pkt_size+4]); err != nil {
 				log.Printf("recv packet fail: %s", err.Error())
 				return
 			}
 			switch buf[1] {
-			case protocol.PACKET_PROXY:
-				conn_id := utils.ReadN4(buf[4:])
+			case PACKET_PROXY:
+				conn_id := ReadN4(buf[4:])
 				lock.RLock()
 				ch := conns[conn_id]
 				lock.RUnlock()
 				if ch != nil {
-					ch <- utils.Dump(buf[8 : pkt_size+4])
+					ch <- Dump(buf[8 : pkt_size+4])
 				} else {
 					log.Printf("no such conn: %d", conn_id)
 				}
-			case protocol.PACKET_NEW_CONN:
-				port := utils.ReadN2(buf[6:])
-				conn_id := utils.ReadN4(buf[8:])
+			case PACKET_NEW_CONN:
+				port := ReadN2(buf[6:])
+				conn_id := ReadN4(buf[8:])
 				conn_type := buf[4]
-				addr := utils.Dump(buf[12 : 12+int(buf[5])])
+				addr := Dump(buf[12 : 12+int(buf[5])])
 				read := make(chan []byte, 32)
 				lock.Lock()
 				conns[conn_id] = read
@@ -369,8 +365,8 @@ func (ser *Server) clientLoop(user *session.Session, pipe *crypto.StreamPipe) {
 					delete(conns, conn_id)
 					lock.Unlock()
 				}()
-			case protocol.PACKET_CLOSE_CONN:
-				conn_id := utils.ReadN4(buf[4:])
+			case PACKET_CLOSE_CONN:
+				conn_id := ReadN4(buf[4:])
 				lock.Lock()
 				ch := conns[conn_id]
 				if ch != nil {
@@ -385,7 +381,7 @@ func (ser *Server) clientLoop(user *session.Session, pipe *crypto.StreamPipe) {
 
 func (ser *Server) copyRemote(read, write chan []byte, conn_id uint32, conn_type byte, addr []byte, port uint16) {
 	var rconn *net.TCPConn
-	if conn_type == protocol.PROTO_ADDR_IP {
+	if conn_type == PROTO_ADDR_IP {
 		var remote_addr net.TCPAddr
 		remote_addr.IP = net.IP(addr)
 		remote_addr.Port = int(port)
@@ -408,10 +404,10 @@ func (ser *Server) copyRemote(read, write chan []byte, conn_id uint32, conn_type
 	}
 	defer rconn.Close()
 
-	bschan := utils.NewBytesChan(8, 65535, func(bs []byte) {
-		bs[0] = protocol.PROTO_MAGIC
-		bs[1] = protocol.PACKET_PROXY
-		utils.WriteN4(bs[4:], conn_id)
+	bschan := NewBytesChan(8, 65535, func(bs []byte) {
+		bs[0] = PROTO_MAGIC
+		bs[1] = PACKET_PROXY
+		WriteN4(bs[4:], conn_id)
 	})
 
 	go func() {
@@ -419,7 +415,7 @@ func (ser *Server) copyRemote(read, write chan []byte, conn_id uint32, conn_type
 			buf := bschan.CurBytes()
 			if n, err := rconn.Read(buf[8:]); err == nil {
 				log.Printf("recv from remote: %d", n)
-				utils.WriteN2(buf[2:], uint16(n+4))
+				WriteN2(buf[2:], uint16(n+4))
 				bschan.Send(n + 8)
 			} else {
 				log.Printf("remote closed")
@@ -446,14 +442,14 @@ for_loop:
 			if !ok {
 				break for_loop
 			}
-			write <- utils.Dump(data)
+			write <- Dump(data)
 		}
 	}
 
 	buf := make([]byte, 8)
-	buf[0] = protocol.PROTO_MAGIC
-	buf[1] = protocol.PACKET_CLOSE_CONN
-	utils.WriteN2(buf[2:], 4)
-	utils.WriteN4(buf[4:], conn_id)
+	buf[0] = PROTO_MAGIC
+	buf[1] = PACKET_CLOSE_CONN
+	WriteN2(buf[2:], 4)
+	WriteN4(buf[4:], conn_id)
 	write <- buf
 }

@@ -1,4 +1,4 @@
-package crypto
+package tunnel
 
 import (
 	"crypto/md5"

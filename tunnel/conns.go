@@ -1,15 +1,13 @@
-package client
+package tunnel
 
 import (
-	"github.com/breaksocks/breaksocks/protocol"
-	"github.com/breaksocks/breaksocks/utils"
 	"io"
 	"sync"
 )
 
 type SockChan struct {
 	id   uint32
-	read *utils.BytesChan
+	read *BytesChan
 }
 
 type ConnManager struct {
@@ -29,7 +27,7 @@ func NewConnManager(write_ch chan []byte) *ConnManager {
 
 func (cm *ConnManager) newSockChan(rw io.ReadWriteCloser) *SockChan {
 	sc := new(SockChan)
-	sc.read = utils.NewBytesChan(8, 65535, nil)
+	sc.read = NewBytesChan(8, 65535, nil)
 
 	cm.lock.Lock()
 	defer cm.lock.Unlock()
@@ -82,13 +80,13 @@ func (cm *ConnManager) DoProxy(conn_type byte, addr []byte, port int, rw io.Read
 
 	sc := cm.newSockChan(rw)
 	req := make([]byte, 12+len(addr))
-	req[0] = protocol.PROTO_MAGIC
-	req[1] = protocol.PACKET_NEW_CONN
-	utils.WriteN2(req[2:], uint16(8+len(addr)))
+	req[0] = PROTO_MAGIC
+	req[1] = PACKET_NEW_CONN
+	WriteN2(req[2:], uint16(8+len(addr)))
 	req[4] = conn_type
 	req[5] = byte(len(addr))
-	utils.WriteN2(req[6:], uint16(port))
-	utils.WriteN4(req[8:], sc.id)
+	WriteN2(req[6:], uint16(port))
+	WriteN4(req[8:], sc.id)
 	copy(req[12:], addr)
 	cm.write_ch <- req
 
@@ -96,17 +94,17 @@ func (cm *ConnManager) DoProxy(conn_type byte, addr []byte, port int, rw io.Read
 }
 
 func (cm *ConnManager) copyConn(sc *SockChan, rw io.ReadWriteCloser) {
-	bschan := utils.NewBytesChan(8, 65535, func(bs []byte) {
-		bs[0] = protocol.PROTO_MAGIC
-		bs[1] = protocol.PACKET_PROXY
-		utils.WriteN4(bs[4:], sc.id)
+	bschan := NewBytesChan(8, 65535, func(bs []byte) {
+		bs[0] = PROTO_MAGIC
+		bs[1] = PACKET_PROXY
+		WriteN4(bs[4:], sc.id)
 	})
 
 	go func() {
 		for {
 			buf := bschan.CurBytes()
 			if n, err := rw.Read(buf[8:]); err == nil {
-				utils.WriteN2(buf[2:], uint16(4+n))
+				WriteN2(buf[2:], uint16(4+n))
 				bschan.Send(8 + n)
 			} else {
 				bschan.Close()
@@ -131,7 +129,7 @@ func (cm *ConnManager) copyConn(sc *SockChan, rw io.ReadWriteCloser) {
 			if !ok {
 				exit = true
 			} else {
-				cm.write_ch <- utils.Dump(data)
+				cm.write_ch <- Dump(data)
 			}
 		}
 		if exit {
@@ -140,8 +138,8 @@ func (cm *ConnManager) copyConn(sc *SockChan, rw io.ReadWriteCloser) {
 	}
 
 	bs := bschan.CurBytes()
-	bs[1] = protocol.PACKET_CLOSE_CONN
-	utils.WriteN2(bs[2:], 4)
+	bs[1] = PACKET_CLOSE_CONN
+	WriteN2(bs[2:], 4)
 	cm.write_ch <- bschan.CurBytes()[:8]
 	cm.delSockChan(sc.id)
 }
