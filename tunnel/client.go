@@ -26,6 +26,8 @@ type Client struct {
 	session_id SessionId
 	conn_mgr   *ConnManager
 	write_ch   chan []byte
+	read_pool  *BytesPool
+	write_pool *BytesPool
 }
 
 func NewClient(config *ClientConfig) (*Client, error) {
@@ -41,7 +43,9 @@ func NewClient(config *ClientConfig) (*Client, error) {
 
 	cli.config = config
 	cli.write_ch = make(chan []byte, 1024)
-	cli.conn_mgr = NewConnManager(cli.write_ch)
+	cli.read_pool = NewBytesPool(1024, 1500)
+	cli.write_pool = NewBytesPool(4096, 1500)
+	cli.conn_mgr = NewConnManager(cli.write_ch, cli.read_pool, cli.write_pool)
 	return cli, nil
 }
 
@@ -77,9 +81,11 @@ func (cli *Client) Init() error {
 	go func() {
 		for {
 			if data, ok := <-cli.write_ch; ok {
-				if _, err := cli.pipe.Write(data); err != nil {
+				pkt_size := ReadN2(data[2:])
+				if _, err := cli.pipe.Write(data[:4+pkt_size]); err != nil {
 					break
 				}
+				cli.write_pool.Put(data)
 			} else {
 				break
 			}
@@ -87,7 +93,7 @@ func (cli *Client) Init() error {
 	}()
 
 	go func() {
-		buf := make([]byte, 65535)
+		buf := cli.read_pool.Get()
 		for {
 			if _, err := io.ReadFull(cli.pipe, buf[:4]); err != nil {
 				glog.Errorf("read from server fail: %s", err.Error())
@@ -98,12 +104,17 @@ func (cli *Client) Init() error {
 					glog.Errorf("recv from server fail: %s", err.Error())
 					break
 				}
+				if pkt_size > 1500-4 {
+					glog.Errorf("invalid packet size: %s", pkt_size)
+					break
+				}
 				conn_id := ReadN4(buf[4:])
 				switch buf[1] {
 				case PACKET_PROXY:
-					cli.conn_mgr.WriteToLocalConn(conn_id, buf[8:pkt_size+4])
+					cli.conn_mgr.WriteToLocalConn(conn_id, buf)
 				case PACKET_CLOSE_CONN:
 					cli.conn_mgr.CloseConn(conn_id)
+					cli.read_pool.Put(buf)
 				}
 			}
 		}

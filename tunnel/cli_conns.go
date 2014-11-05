@@ -7,27 +7,31 @@ import (
 
 type SockChan struct {
 	id   uint32
-	read *BytesChan
+	read chan []byte
 }
 
 type ConnManager struct {
-	chans    map[uint32]*SockChan
-	write_ch chan []byte
-	next_id  uint32
-	lock     sync.RWMutex
+	chans      map[uint32]*SockChan
+	write_ch   chan []byte
+	read_pool  *BytesPool
+	write_pool *BytesPool
+	next_id    uint32
+	lock       sync.RWMutex
 }
 
-func NewConnManager(write_ch chan []byte) *ConnManager {
+func NewConnManager(write_ch chan []byte, read_pool, write_pool *BytesPool) *ConnManager {
 	cm := new(ConnManager)
 	cm.chans = make(map[uint32]*SockChan)
 	cm.write_ch = write_ch
+	cm.read_pool = read_pool
+	cm.write_pool = write_pool
 	cm.next_id = 1
 	return cm
 }
 
 func (cm *ConnManager) newSockChan(rw io.ReadWriteCloser) *SockChan {
 	sc := new(SockChan)
-	sc.read = NewBytesChan(8, 65535, nil)
+	sc.read = make(chan []byte, 64)
 
 	cm.lock.Lock()
 	defer cm.lock.Unlock()
@@ -59,7 +63,7 @@ func (cm *ConnManager) CloseConn(conn_id uint32) {
 	cm.lock.RUnlock()
 
 	if sc != nil {
-		sc.read.Close()
+		close(sc.read)
 		cm.delSockChan(conn_id)
 	}
 }
@@ -70,8 +74,7 @@ func (cm *ConnManager) WriteToLocalConn(conn_id uint32, data []byte) {
 	cm.lock.RUnlock()
 
 	if sc != nil {
-		copy(sc.read.CurBytes(), data)
-		sc.read.Send(len(data))
+		sc.read <- data
 	}
 }
 
@@ -94,20 +97,19 @@ func (cm *ConnManager) DoProxy(conn_type byte, addr []byte, port int, rw io.Read
 }
 
 func (cm *ConnManager) copyConn(sc *SockChan, rw io.ReadWriteCloser) {
-	bschan := NewBytesChan(8, 1400, func(bs []byte) {
-		bs[0] = PROTO_MAGIC
-		bs[1] = PACKET_PROXY
-		WriteN4(bs[4:], sc.id)
-	})
-
+	exit_ch := make(chan bool)
 	go func() {
 		for {
-			buf := bschan.CurBytes()
-			if n, err := rw.Read(buf[8:]); err == nil {
-				WriteN2(buf[2:], uint16(4+n))
-				bschan.Send(8 + n)
+			bs := cm.write_pool.Get()
+			if n, err := rw.Read(bs[8:]); err == nil {
+				bs[0] = PROTO_MAGIC
+				bs[1] = PACKET_PROXY
+				WriteN2(bs[2:], uint16(4+n))
+				WriteN4(bs[4:], sc.id)
+				cm.write_ch <- bs
 			} else {
-				bschan.Close()
+				cm.write_pool.Put(bs)
+				exit_ch <- true
 				return
 			}
 		}
@@ -115,31 +117,33 @@ func (cm *ConnManager) copyConn(sc *SockChan, rw io.ReadWriteCloser) {
 
 	for {
 		exit := false
+
 		select {
-		case data, ok := <-sc.read.Chan:
+		case data, ok := <-sc.read:
 			if !ok {
 				// closed via cm.CloseConn
 				rw.Close()
 				return
 			}
-			if _, err := rw.Write(data); err != nil {
+			pkt_size := ReadN2(data[2:])
+			if _, err := rw.Write(data[8 : 8+pkt_size]); err != nil {
 				exit = true
 			}
-		case data, ok := <-bschan.Chan:
-			if !ok {
-				exit = true
-			} else {
-				cm.write_ch <- Dump(data)
-			}
+			cm.read_pool.Put(data)
+		case <-exit_ch:
+			exit = true
 		}
+
 		if exit {
 			break
 		}
 	}
 
-	bs := bschan.CurBytes()
+	bs := cm.write_pool.Get()
+	bs[0] = PROTO_MAGIC
 	bs[1] = PACKET_CLOSE_CONN
 	WriteN2(bs[2:], 4)
-	cm.write_ch <- bschan.CurBytes()[:8]
+	WriteN4(bs[4:], sc.id)
+	cm.write_ch <- bs
 	cm.delSockChan(sc.id)
 }
