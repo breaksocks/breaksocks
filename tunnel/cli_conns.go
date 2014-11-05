@@ -1,6 +1,7 @@
 package tunnel
 
 import (
+	"github.com/golang/glog"
 	"io"
 	"sync"
 )
@@ -69,6 +70,8 @@ func (cm *ConnManager) CloseConn(conn_id uint32) {
 }
 
 func (cm *ConnManager) WriteToLocalConn(conn_id uint32, data []byte) {
+	defer recover()
+
 	cm.lock.RLock()
 	sc := cm.chans[conn_id]
 	cm.lock.RUnlock()
@@ -122,12 +125,12 @@ func (cm *ConnManager) copyConn(sc *SockChan, rw io.ReadWriteCloser) {
 		case data, ok := <-sc.read:
 			if !ok {
 				// closed via cm.CloseConn
-				rw.Close()
 				return
 			}
 			pkt_size := ReadN2(data[2:])
-			if _, err := rw.Write(data[8 : 8+pkt_size]); err != nil {
+			if _, err := rw.Write(data[8 : 4+pkt_size]); err != nil {
 				exit = true
+				glog.V(1).Infof("write fail: %v", err)
 			}
 			cm.read_pool.Put(data)
 		case <-exit_ch:
@@ -146,4 +149,5 @@ func (cm *ConnManager) copyConn(sc *SockChan, rw io.ReadWriteCloser) {
 	WriteN4(bs[4:], sc.id)
 	cm.write_ch <- bs
 	cm.delSockChan(sc.id)
+	close(sc.read)
 }

@@ -93,8 +93,8 @@ func (cli *Client) Init() error {
 	}()
 
 	go func() {
-		buf := cli.read_pool.Get()
 		for {
+			buf := cli.read_pool.Get()
 			if _, err := io.ReadFull(cli.pipe, buf[:4]); err != nil {
 				glog.Errorf("read from server fail: %s", err.Error())
 				break

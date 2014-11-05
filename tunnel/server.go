@@ -424,7 +424,10 @@ func (ser *Server) connectRemote(conn_type byte, addr []byte, port uint16) (*net
 
 func (ser *Server) copyRemote(read, write chan []byte, read_p, write_p *BytesPool,
 	conn_id uint32, conn *net.TCPConn) {
-	defer conn.Close()
+	defer func() {
+		recover()
+		conn.Close()
+	}()
 
 	exit_ch := make(chan bool)
 
@@ -453,7 +456,7 @@ for_loop:
 				return
 			}
 			pkt_size := ReadN2(data[2:])
-			_, err := conn.Write(data[:4+pkt_size])
+			_, err := conn.Write(data[8 : 4+pkt_size])
 			read_p.Put(data)
 			if err != nil {
 				break for_loop
