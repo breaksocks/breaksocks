@@ -310,17 +310,14 @@ func (ser *Server) reuseSession(pipe *StreamPipe, s_bs, rand_bs, hmac_bs []byte)
 func (ser *Server) clientLoop(user *Session, pipe *StreamPipe) {
 	glog.V(1).Infof("start proxy: %s(%s)", user.Username, user.Id)
 	write_ch := make(chan []byte, 4096)
-	write_pool := NewBytesPool(4096, 1500)
 
 	go func() {
 		for {
 			if data, ok := <-write_ch; ok {
-				pkt_size := ReadN2(data[2:])
-				if _, err := pipe.Write(data[:4+pkt_size]); err != nil {
+				if _, err := pipe.Write(data); err != nil {
 					glog.V(1).Infof("write to client fail: %s", err.Error())
 					// TODO shutdown link
 				}
-				write_pool.Put(data)
 			} else {
 				break
 			}
@@ -330,9 +327,8 @@ func (ser *Server) clientLoop(user *Session, pipe *StreamPipe) {
 
 	conns := make(map[uint32]chan []byte)
 	var lock sync.RWMutex
-	read_pool := NewBytesPool(1024, 1500)
 	for {
-		buf := read_pool.Get()
+		buf := make([]byte, 2048)
 		if _, err := io.ReadFull(pipe, buf[:4]); err != nil {
 			glog.V(1).Infof("recv packet fail: %s", err.Error())
 			return
@@ -342,7 +338,7 @@ func (ser *Server) clientLoop(user *Session, pipe *StreamPipe) {
 				return
 			}
 			pkt_size := ReadN2(buf[2:])
-			if pkt_size > 1500-4 {
+			if pkt_size > 2048-4 {
 				glog.V(1).Infof("recved an invalid packet, size: %d", pkt_size)
 				return
 			}
@@ -358,7 +354,7 @@ func (ser *Server) clientLoop(user *Session, pipe *StreamPipe) {
 				ch := conns[conn_id]
 				lock.RUnlock()
 				if ch != nil {
-					ch <- buf
+					ch <- buf[8 : 4+pkt_size]
 				} else {
 					glog.V(1).Infof("no such conn: %d", conn_id)
 				}
@@ -366,21 +362,19 @@ func (ser *Server) clientLoop(user *Session, pipe *StreamPipe) {
 				port := ReadN2(buf[6:])
 				conn_id := ReadN4(buf[8:])
 				conn_type := buf[4]
-				addr := make([]byte, int(buf[5]))
-				copy(addr, buf[12:12+int(buf[5])])
+				addr := buf[12 : 12+int(buf[5])]
 				read := make(chan []byte, 32)
 				lock.Lock()
 				conns[conn_id] = read
 				lock.Unlock()
 				go func() {
 					if conn, err := ser.connectRemote(conn_type, addr, port); err == nil {
-						ser.copyRemote(read, write_ch, read_pool, write_pool, conn_id, conn)
+						ser.copyRemote(read, write_ch, conn_id, conn)
 					}
 					lock.Lock()
 					delete(conns, conn_id)
 					lock.Unlock()
 				}()
-				read_pool.Put(buf)
 			case PACKET_CLOSE_CONN:
 				conn_id := ReadN4(buf[4:])
 				lock.Lock()
@@ -390,7 +384,6 @@ func (ser *Server) clientLoop(user *Session, pipe *StreamPipe) {
 					delete(conns, conn_id)
 				}
 				lock.Unlock()
-				read_pool.Put(buf)
 			}
 		}
 	}
@@ -422,8 +415,7 @@ func (ser *Server) connectRemote(conn_type byte, addr []byte, port uint16) (*net
 	return rconn, nil
 }
 
-func (ser *Server) copyRemote(read, write chan []byte, read_p, write_p *BytesPool,
-	conn_id uint32, conn *net.TCPConn) {
+func (ser *Server) copyRemote(read, write chan []byte, conn_id uint32, conn *net.TCPConn) {
 	defer func() {
 		recover()
 		conn.Close()
@@ -433,15 +425,14 @@ func (ser *Server) copyRemote(read, write chan []byte, read_p, write_p *BytesPoo
 
 	go func() {
 		for {
-			buf := write_p.Get()
+			buf := make([]byte, 2048)
 			if n, err := conn.Read(buf[8:]); err == nil {
 				buf[0] = PROTO_MAGIC
 				buf[1] = PACKET_PROXY
 				WriteN2(buf[2:], uint16(n+4))
 				WriteN4(buf[4:], conn_id)
-				write <- buf
+				write <- buf[:8+n]
 			} else {
-				write_p.Put(buf)
 				exit_ch <- true
 				return
 			}
@@ -455,9 +446,7 @@ for_loop:
 			if !ok {
 				return
 			}
-			pkt_size := ReadN2(data[2:])
-			_, err := conn.Write(data[8 : 4+pkt_size])
-			read_p.Put(data)
+			_, err := conn.Write(data)
 			if err != nil {
 				break for_loop
 			}
@@ -466,7 +455,7 @@ for_loop:
 		}
 	}
 
-	buf := write_p.Get()
+	buf := make([]byte, 8)
 	buf[0] = PROTO_MAGIC
 	buf[1] = PACKET_CLOSE_CONN
 	WriteN2(buf[2:], 4)

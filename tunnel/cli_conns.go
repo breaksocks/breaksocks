@@ -12,20 +12,16 @@ type SockChan struct {
 }
 
 type ConnManager struct {
-	chans      map[uint32]*SockChan
-	write_ch   chan []byte
-	read_pool  *BytesPool
-	write_pool *BytesPool
-	next_id    uint32
-	lock       sync.RWMutex
+	chans    map[uint32]*SockChan
+	write_ch chan []byte
+	next_id  uint32
+	lock     sync.RWMutex
 }
 
-func NewConnManager(write_ch chan []byte, read_pool, write_pool *BytesPool) *ConnManager {
+func NewConnManager(write_ch chan []byte) *ConnManager {
 	cm := new(ConnManager)
 	cm.chans = make(map[uint32]*SockChan)
 	cm.write_ch = write_ch
-	cm.read_pool = read_pool
-	cm.write_pool = write_pool
 	cm.next_id = 1
 	return cm
 }
@@ -66,11 +62,17 @@ func (cm *ConnManager) CloseConn(conn_id uint32) {
 	if sc != nil {
 		close(sc.read)
 		cm.delSockChan(conn_id)
+		glog.V(1).Infof("server close sock: %d", conn_id)
 	}
 }
 
 func (cm *ConnManager) WriteToLocalConn(conn_id uint32, data []byte) {
-	defer recover()
+	defer func() {
+		err := recover()
+		if err != nil {
+			glog.V(1).Infof("write to local panic: %v", err)
+		}
+	}()
 
 	cm.lock.RLock()
 	sc := cm.chans[conn_id]
@@ -78,6 +80,8 @@ func (cm *ConnManager) WriteToLocalConn(conn_id uint32, data []byte) {
 
 	if sc != nil {
 		sc.read <- data
+	} else {
+		glog.V(1).Infof("write to deled sock: %d", conn_id)
 	}
 }
 
@@ -103,15 +107,14 @@ func (cm *ConnManager) copyConn(sc *SockChan, rw io.ReadWriteCloser) {
 	exit_ch := make(chan bool)
 	go func() {
 		for {
-			bs := cm.write_pool.Get()
+			bs := make([]byte, 2048)
 			if n, err := rw.Read(bs[8:]); err == nil {
 				bs[0] = PROTO_MAGIC
 				bs[1] = PACKET_PROXY
 				WriteN2(bs[2:], uint16(4+n))
 				WriteN4(bs[4:], sc.id)
-				cm.write_ch <- bs
+				cm.write_ch <- bs[:8+n]
 			} else {
-				cm.write_pool.Put(bs)
 				exit_ch <- true
 				return
 			}
@@ -127,12 +130,12 @@ func (cm *ConnManager) copyConn(sc *SockChan, rw io.ReadWriteCloser) {
 				// closed via cm.CloseConn
 				return
 			}
-			pkt_size := ReadN2(data[2:])
-			if _, err := rw.Write(data[8 : 4+pkt_size]); err != nil {
+			if _, err := rw.Write(data); err != nil {
 				exit = true
 				glog.V(1).Infof("write fail: %v", err)
+			} else {
+				glog.V(2).Infof("write local: %d %p", len(data), data)
 			}
-			cm.read_pool.Put(data)
 		case <-exit_ch:
 			exit = true
 		}
@@ -142,7 +145,7 @@ func (cm *ConnManager) copyConn(sc *SockChan, rw io.ReadWriteCloser) {
 		}
 	}
 
-	bs := cm.write_pool.Get()
+	bs := make([]byte, 8)
 	bs[0] = PROTO_MAGIC
 	bs[1] = PACKET_CLOSE_CONN
 	WriteN2(bs[2:], 4)
@@ -150,4 +153,5 @@ func (cm *ConnManager) copyConn(sc *SockChan, rw io.ReadWriteCloser) {
 	cm.write_ch <- bs
 	cm.delSockChan(sc.id)
 	close(sc.read)
+	glog.V(1).Infof("local close sock: %d", sc.id)
 }
