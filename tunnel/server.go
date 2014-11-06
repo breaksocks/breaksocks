@@ -417,7 +417,9 @@ func (ser *Server) connectRemote(conn_type byte, addr []byte, port uint16) (*net
 
 func (ser *Server) copyRemote(read, write chan []byte, conn_id uint32, conn *net.TCPConn) {
 	defer func() {
-		recover()
+		if err := recover(); err != nil {
+			glog.V(1).Infof("copy panic: %v", err)
+		}
 		conn.Close()
 	}()
 

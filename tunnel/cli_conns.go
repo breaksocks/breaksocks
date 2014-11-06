@@ -62,7 +62,6 @@ func (cm *ConnManager) CloseConn(conn_id uint32) {
 	if sc != nil {
 		close(sc.read)
 		cm.delSockChan(conn_id)
-		glog.V(1).Infof("server close sock: %d", conn_id)
 	}
 }
 
@@ -81,7 +80,7 @@ func (cm *ConnManager) WriteToLocalConn(conn_id uint32, data []byte) {
 	if sc != nil {
 		sc.read <- data
 	} else {
-		glog.V(1).Infof("write to deled sock: %d", conn_id)
+		glog.V(2).Infof("write to deled sock: %d", conn_id)
 	}
 }
 
@@ -133,8 +132,6 @@ func (cm *ConnManager) copyConn(sc *SockChan, rw io.ReadWriteCloser) {
 			if _, err := rw.Write(data); err != nil {
 				exit = true
 				glog.V(1).Infof("write fail: %v", err)
-			} else {
-				glog.V(2).Infof("write local: %d %p", len(data), data)
 			}
 		case <-exit_ch:
 			exit = true
