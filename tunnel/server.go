@@ -14,7 +14,6 @@ import (
 	"net"
 	"os"
 	"strings"
-	"sync"
 )
 
 type Server struct {
@@ -105,7 +104,8 @@ func (ser *Server) processClient(conn *net.TCPConn) {
 	if user == nil {
 		return
 	}
-	ser.clientLoop(user, pipe)
+	cli := NewClientProxy(user, pipe)
+	cli.DoProxy()
 }
 
 func (ser *Server) clientStartup(pipe *StreamPipe) *Session {
@@ -305,162 +305,4 @@ func (ser *Server) reuseSession(pipe *StreamPipe, s_bs, rand_bs, hmac_bs []byte)
 		return ser.newSession(pipe)
 	}
 	return s
-}
-
-func (ser *Server) clientLoop(user *Session, pipe *StreamPipe) {
-	glog.V(1).Infof("start proxy: %s(%s)", user.Username, user.Id)
-	write_ch := make(chan []byte, 4096)
-
-	go func() {
-		for {
-			if data, ok := <-write_ch; ok {
-				if _, err := pipe.Write(data); err != nil {
-					glog.V(1).Infof("write to client fail: %s", err.Error())
-					// TODO shutdown link
-				}
-			} else {
-				break
-			}
-		}
-	}()
-	defer close(write_ch)
-
-	conns := make(map[uint32]chan []byte)
-	var lock sync.RWMutex
-	for {
-		buf := make([]byte, 2048)
-		if _, err := io.ReadFull(pipe, buf[:4]); err != nil {
-			glog.V(1).Infof("recv packet fail: %s", err.Error())
-			return
-		} else {
-			if buf[0] != PROTO_MAGIC {
-				glog.V(1).Infof("invalid magic: %d", buf[0])
-				return
-			}
-			pkt_size := ReadN2(buf[2:])
-			if pkt_size > 2048-4 {
-				glog.V(1).Infof("recved an invalid packet, size: %d", pkt_size)
-				return
-			}
-			if _, err := io.ReadFull(pipe, buf[4:pkt_size+4]); err != nil {
-				glog.V(1).Infof("recv packet fail: %s", err.Error())
-				return
-			}
-
-			switch buf[1] {
-			case PACKET_PROXY:
-				conn_id := ReadN4(buf[4:])
-				lock.RLock()
-				ch := conns[conn_id]
-				lock.RUnlock()
-				if ch != nil {
-					ch <- buf[8 : 4+pkt_size]
-				} else {
-					glog.V(1).Infof("no such conn: %d", conn_id)
-				}
-			case PACKET_NEW_CONN:
-				port := ReadN2(buf[6:])
-				conn_id := ReadN4(buf[8:])
-				conn_type := buf[4]
-				addr := buf[12 : 12+int(buf[5])]
-				read := make(chan []byte, 32)
-				lock.Lock()
-				conns[conn_id] = read
-				lock.Unlock()
-				go func() {
-					if conn, err := ser.connectRemote(conn_type, addr, port); err == nil {
-						ser.copyRemote(read, write_ch, conn_id, conn)
-					}
-					lock.Lock()
-					delete(conns, conn_id)
-					lock.Unlock()
-				}()
-			case PACKET_CLOSE_CONN:
-				conn_id := ReadN4(buf[4:])
-				lock.Lock()
-				ch := conns[conn_id]
-				if ch != nil {
-					close(ch)
-					delete(conns, conn_id)
-				}
-				lock.Unlock()
-			}
-		}
-	}
-}
-
-func (ser *Server) connectRemote(conn_type byte, addr []byte, port uint16) (*net.TCPConn, error) {
-	var rconn *net.TCPConn
-
-	if conn_type == PROTO_ADDR_IP {
-		var remote_addr net.TCPAddr
-		remote_addr.IP = net.IP(addr)
-		remote_addr.Port = int(port)
-		if conn, err := net.DialTCP("tcp", nil, &remote_addr); err == nil {
-			rconn = conn
-		} else {
-			glog.V(1).Infof("conn %#v fail: %s", remote_addr, err.Error())
-			return nil, err
-		}
-	} else {
-		raddr := net.JoinHostPort(string(addr), fmt.Sprintf("%d", port))
-		if conn, err := net.Dial("tcp", raddr); err == nil {
-			rconn = conn.(*net.TCPConn)
-		} else {
-			glog.V(1).Infof("conn %#v fail: %s", raddr, err.Error())
-			return nil, err
-		}
-	}
-
-	return rconn, nil
-}
-
-func (ser *Server) copyRemote(read, write chan []byte, conn_id uint32, conn *net.TCPConn) {
-	defer func() {
-		if err := recover(); err != nil {
-			glog.V(1).Infof("copy panic: %v", err)
-		}
-		conn.Close()
-	}()
-
-	exit_ch := make(chan bool)
-
-	go func() {
-		for {
-			buf := make([]byte, 2048)
-			if n, err := conn.Read(buf[8:]); err == nil {
-				buf[0] = PROTO_MAGIC
-				buf[1] = PACKET_PROXY
-				WriteN2(buf[2:], uint16(n+4))
-				WriteN4(buf[4:], conn_id)
-				write <- buf[:8+n]
-			} else {
-				exit_ch <- true
-				return
-			}
-		}
-	}()
-
-for_loop:
-	for {
-		select {
-		case data, ok := <-read:
-			if !ok {
-				return
-			}
-			_, err := conn.Write(data)
-			if err != nil {
-				break for_loop
-			}
-		case <-exit_ch:
-			break for_loop
-		}
-	}
-
-	buf := make([]byte, 8)
-	buf[0] = PROTO_MAGIC
-	buf[1] = PACKET_CLOSE_CONN
-	WriteN2(buf[2:], 4)
-	WriteN4(buf[4:], conn_id)
-	write <- buf
 }
