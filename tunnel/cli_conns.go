@@ -103,7 +103,7 @@ func (cm *ConnManager) DoProxy(conn_type byte, addr []byte, port int, rw io.Read
 }
 
 func (cm *ConnManager) copyConn(sc *SockChan, rw io.ReadWriteCloser) {
-	exit_ch := make(chan bool)
+	exit_ch := make(chan bool, 1)
 	go func() {
 		for {
 			bs := make([]byte, 2048)
@@ -114,15 +114,15 @@ func (cm *ConnManager) copyConn(sc *SockChan, rw io.ReadWriteCloser) {
 				WriteN4(bs[4:], sc.id)
 				cm.write_ch <- bs[:8+n]
 			} else {
+				glog.V(1).Infof("read local fail: %v", err)
 				exit_ch <- true
 				return
 			}
 		}
 	}()
 
+for_loop:
 	for {
-		exit := false
-
 		select {
 		case data, ok := <-sc.read:
 			if !ok {
@@ -130,15 +130,11 @@ func (cm *ConnManager) copyConn(sc *SockChan, rw io.ReadWriteCloser) {
 				return
 			}
 			if _, err := rw.Write(data); err != nil {
-				exit = true
 				glog.V(1).Infof("write fail: %v", err)
+				break for_loop
 			}
 		case <-exit_ch:
-			exit = true
-		}
-
-		if exit {
-			break
+			break for_loop
 		}
 	}
 

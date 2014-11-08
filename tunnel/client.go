@@ -77,8 +77,10 @@ func (cli *Client) Init() error {
 	go func() {
 		for {
 			if data, ok := <-cli.write_ch; ok {
-				if _, err := cli.pipe.Write(data); err != nil {
+				if n, err := cli.pipe.Write(data); err != nil {
 					break
+				} else {
+					glog.V(3).Infof("remote written %d", n)
 				}
 			} else {
 				break
@@ -105,7 +107,7 @@ func (cli *Client) Init() error {
 				conn_id := ReadN4(buf[4:])
 				switch buf[1] {
 				case PACKET_PROXY:
-					glog.V(2).Infof("proxy %d %p", pkt_size-4, buf)
+					glog.V(3).Infof("proxy %d", pkt_size-4)
 					cli.conn_mgr.WriteToLocalConn(conn_id, buf[8:4+pkt_size])
 				case PACKET_CLOSE_CONN:
 					cli.conn_mgr.CloseConn(conn_id)

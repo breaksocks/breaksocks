@@ -20,7 +20,7 @@ func NewClientProxy(session *Session, pipe *StreamPipe) *ClientProxy {
 		session: session,
 		pipe:    pipe,
 		closed:  false,
-		write:   make(chan []byte, 4096)}
+		write:   make(chan []byte)}
 }
 
 func (cp *ClientProxy) DoProxy() {
@@ -29,9 +29,10 @@ func (cp *ClientProxy) DoProxy() {
 		for {
 			select {
 			case data := <-cp.write:
-				if _, err := cp.pipe.Write(data); err != nil {
+				if n, err := cp.pipe.Write(data); err != nil {
 					glog.V(1).Infof("write to client fail: %s", err.Error())
-					// TODO shutdown link
+				} else {
+					glog.V(2).Infof("pipe writted %d", n-8)
 				}
 			case <-exit_ch:
 				// clear write queue
@@ -148,8 +149,41 @@ func (cp *ClientProxy) connectRemote(conn_type byte, addr []byte, port uint16) (
 }
 
 func (cp *ClientProxy) copyRemote(read chan []byte, conn_id uint32, conn *net.TCPConn) {
-	exit_ch := make(chan bool, 1)
+	remote_read_exit := make(chan bool, 1)
+	copy_write := make(chan []byte, 512)
+	copy_write_exit := make(chan bool, 1)
+
 	go func() {
+		// exit: copy_write is closed or <-copy_write_exit or cp.closed
+		var data []byte
+		var ok bool
+
+		for !cp.closed {
+			select {
+			case data, ok = <-copy_write:
+				if !ok || cp.closed {
+					return
+				}
+			case <-copy_write_exit:
+				return
+			}
+
+			select {
+			case cp.write <- data:
+			case <-copy_write_exit:
+				return
+			}
+		}
+	}()
+
+	go func() {
+		// exit: cp.closed or conn.Read fail
+		defer func() {
+			close(copy_write)
+			copy_write_exit <- true
+			remote_read_exit <- true
+		}()
+
 		for {
 			buf := make([]byte, 2048)
 			if n, err := conn.Read(buf[8:]); err == nil {
@@ -160,9 +194,9 @@ func (cp *ClientProxy) copyRemote(read chan []byte, conn_id uint32, conn *net.TC
 				buf[1] = PACKET_PROXY
 				WriteN2(buf[2:], uint16(n+4))
 				WriteN4(buf[4:], conn_id)
-				cp.write <- buf[:8+n]
+				glog.V(2).Infof("remote got %d", n)
+				copy_write <- buf[:8+n]
 			} else {
-				exit_ch <- true
 				return
 			}
 		}
@@ -180,7 +214,7 @@ for_loop:
 			if err != nil {
 				break for_loop
 			}
-		case <-exit_ch:
+		case <-remote_read_exit:
 			break for_loop
 		}
 	}
