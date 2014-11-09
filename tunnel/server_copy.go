@@ -8,11 +8,19 @@ import (
 	"sync"
 )
 
+type proxyConn struct {
+	read   chan []byte
+	closed bool
+}
+
 type ClientProxy struct {
 	session *Session
 	pipe    *StreamPipe
 	closed  bool
 	write   chan []byte
+
+	lock  sync.RWMutex
+	conns map[uint32]*proxyConn
 }
 
 func NewClientProxy(session *Session, pipe *StreamPipe) *ClientProxy {
@@ -20,21 +28,76 @@ func NewClientProxy(session *Session, pipe *StreamPipe) *ClientProxy {
 		session: session,
 		pipe:    pipe,
 		closed:  false,
-		write:   make(chan []byte)}
+		write:   make(chan []byte),
+		conns:   make(map[uint32]*proxyConn)}
+}
+
+func (cp *ClientProxy) newConn(conn_id uint32) *proxyConn {
+	pconn := &proxyConn{read: make(chan []byte, 64), closed: false}
+	cp.lock.Lock()
+	cp.conns[conn_id] = pconn
+	cp.lock.Unlock()
+	return pconn
+}
+
+func (cp *ClientProxy) closeConn(conn_id uint32, pconn *proxyConn) {
+	if pconn != nil {
+		pconn.closed = true
+	for_loop:
+		for {
+			select {
+			case <-pconn.read:
+			default:
+				break for_loop
+			}
+		}
+	}
+
+	cp.lock.Lock()
+	pconn, ok := cp.conns[conn_id]
+	if ok {
+		close(pconn.read)
+		delete(cp.conns, conn_id)
+	}
+	cp.lock.Unlock()
+}
+
+func (cp *ClientProxy) sendToConn(conn_id uint32, data []byte) {
+	cp.lock.RLock()
+	pconn, ok := cp.conns[conn_id]
+	if ok {
+		if !pconn.closed {
+			pconn.read <- data
+		}
+	} else {
+		glog.V(1).Infof("no such conn: %d", conn_id)
+	}
+	cp.lock.RUnlock()
+}
+
+func (cp *ClientProxy) closeAllConns() {
+	cp.lock.Lock()
+	for _, pconn := range cp.conns {
+		close(pconn.read)
+	}
+	cp.conns = make(map[uint32]*proxyConn)
+	cp.lock.Unlock()
 }
 
 func (cp *ClientProxy) DoProxy() {
-	exit_ch := make(chan bool)
+	send_to_client_exit := make(chan bool)
 	go func() {
 		for {
 			select {
 			case data := <-cp.write:
-				if n, err := cp.pipe.Write(data); err != nil {
-					glog.V(1).Infof("write to client fail: %s", err.Error())
-				} else {
-					glog.V(2).Infof("pipe writted %d", n-8)
+				if !cp.closed {
+					if n, err := cp.pipe.Write(data); err != nil {
+						glog.V(1).Infof("write to client fail: %s", err.Error())
+					} else {
+						glog.V(2).Infof("pipe writted %d", n-8)
+					}
 				}
-			case <-exit_ch:
+			case <-send_to_client_exit:
 				// clear write queue
 				for {
 					select {
@@ -47,16 +110,10 @@ func (cp *ClientProxy) DoProxy() {
 		}
 	}()
 
-	conns := make(map[uint32]chan []byte)
-	var lock sync.RWMutex
 	defer func() {
 		cp.closed = true
-		lock.Lock()
-		for _, ch := range conns {
-			close(ch)
-		}
-		lock.Unlock()
-		exit_ch <- true
+		cp.closeAllConns()
+		send_to_client_exit <- true
 	}()
 
 	pipe := cp.pipe
@@ -82,41 +139,21 @@ func (cp *ClientProxy) DoProxy() {
 
 			switch buf[1] {
 			case PACKET_PROXY:
-				conn_id := ReadN4(buf[4:])
-				lock.RLock()
-				ch := conns[conn_id]
-				lock.RUnlock()
-				if ch != nil {
-					ch <- buf[8 : 4+pkt_size]
-				} else {
-					glog.V(1).Infof("no such conn: %d", conn_id)
-				}
+				cp.sendToConn(ReadN4(buf[4:]), buf[8:4+pkt_size])
 			case PACKET_NEW_CONN:
 				port := ReadN2(buf[6:])
 				conn_id := ReadN4(buf[8:])
 				conn_type := buf[4]
 				addr := buf[12 : 12+int(buf[5])]
-				read := make(chan []byte, 32)
-				lock.Lock()
-				conns[conn_id] = read
-				lock.Unlock()
+				pconn := cp.newConn(conn_id)
 				go func() {
 					if conn, err := cp.connectRemote(conn_type, addr, port); err == nil {
-						cp.copyRemote(read, conn_id, conn)
+						cp.copyRemote(pconn.read, conn_id, conn)
 					}
-					lock.Lock()
-					delete(conns, conn_id)
-					lock.Unlock()
+					cp.closeConn(conn_id, pconn)
 				}()
 			case PACKET_CLOSE_CONN:
-				conn_id := ReadN4(buf[4:])
-				lock.Lock()
-				ch := conns[conn_id]
-				if ch != nil {
-					close(ch)
-					delete(conns, conn_id)
-				}
-				lock.Unlock()
+				cp.closeConn(ReadN4(buf[4:]), nil)
 			}
 		}
 	}
