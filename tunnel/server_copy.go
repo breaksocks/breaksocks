@@ -9,8 +9,7 @@ import (
 )
 
 type proxyConn struct {
-	read   chan []byte
-	closed bool
+	read chan []byte
 }
 
 type ClientProxy struct {
@@ -33,7 +32,7 @@ func NewClientProxy(session *Session, pipe *StreamPipe) *ClientProxy {
 }
 
 func (cp *ClientProxy) newConn(conn_id uint32) *proxyConn {
-	pconn := &proxyConn{read: make(chan []byte, 64), closed: false}
+	pconn := &proxyConn{read: make(chan []byte, 64)}
 	cp.lock.Lock()
 	cp.conns[conn_id] = pconn
 	cp.lock.Unlock()
@@ -41,18 +40,6 @@ func (cp *ClientProxy) newConn(conn_id uint32) *proxyConn {
 }
 
 func (cp *ClientProxy) closeConn(conn_id uint32, pconn *proxyConn) {
-	if pconn != nil {
-		pconn.closed = true
-	for_loop:
-		for {
-			select {
-			case <-pconn.read:
-			default:
-				break for_loop
-			}
-		}
-	}
-
 	cp.lock.Lock()
 	pconn, ok := cp.conns[conn_id]
 	if ok {
@@ -63,16 +50,20 @@ func (cp *ClientProxy) closeConn(conn_id uint32, pconn *proxyConn) {
 }
 
 func (cp *ClientProxy) sendToConn(conn_id uint32, data []byte) {
+	defer func() {
+		if err := recover(); err != nil {
+			glog.V(1).Infof("sendToConn panic: %v", err)
+		}
+	}()
+
 	cp.lock.RLock()
 	pconn, ok := cp.conns[conn_id]
+	cp.lock.RUnlock()
 	if ok {
-		if !pconn.closed {
-			pconn.read <- data
-		}
+		pconn.read <- data
 	} else {
 		glog.V(1).Infof("no such conn: %d", conn_id)
 	}
-	cp.lock.RUnlock()
 }
 
 func (cp *ClientProxy) closeAllConns() {

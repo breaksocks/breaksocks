@@ -40,7 +40,7 @@ func NewClient(config *ClientConfig) (*Client, error) {
 	}
 
 	cli.config = config
-	cli.write_ch = make(chan []byte, 1024)
+	cli.write_ch = make(chan []byte)
 	cli.conn_mgr = NewConnManager(cli.write_ch)
 	return cli, nil
 }

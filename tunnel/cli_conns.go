@@ -7,8 +7,9 @@ import (
 )
 
 type SockChan struct {
-	id   uint32
-	read chan []byte
+	id     uint32
+	closed bool
+	read   chan []byte
 }
 
 type ConnManager struct {
@@ -28,7 +29,7 @@ func NewConnManager(write_ch chan []byte) *ConnManager {
 
 func (cm *ConnManager) newSockChan(rw io.ReadWriteCloser) *SockChan {
 	sc := new(SockChan)
-	sc.read = make(chan []byte, 64)
+	sc.read = make(chan []byte, 128)
 
 	cm.lock.Lock()
 	defer cm.lock.Unlock()
@@ -44,6 +45,7 @@ func (cm *ConnManager) newSockChan(rw io.ReadWriteCloser) *SockChan {
 		}
 	}
 	sc.id = id
+	sc.closed = false
 	cm.chans[id] = sc
 	return sc
 }
