@@ -23,6 +23,9 @@ type ClientConfig struct {
 	ServerAddr      string
 	SocksListenAddr string
 	RedirListenAddr string
+	DNSListenAddr   string
+	DNSListenOnTCP  bool
+	DNSRemoteAddr   string
 
 	GlobalEncryptMethod   string
 	GlobalEncryptPassword string
@@ -70,6 +73,8 @@ func LoadClientConfig(path string) (*ClientConfig, error) {
 	cfg.SocksListenAddr = "127.0.0.1:1080"
 	cfg.GlobalEncryptMethod = "3des-192"
 	cfg.GlobalEncryptPassword = "passwd"
+	cfg.DNSListenOnTCP = false
+	cfg.DNSRemoteAddr = "8.8.8.8:53"
 	cfg.LinkEncryptMethods = []string{"aes-256", "aes-192", "aes-128",
 		"3des-192", "rc4"}
 	if err := LoadYamlConfig(path, cfg); err != nil {

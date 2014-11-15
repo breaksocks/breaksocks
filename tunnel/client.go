@@ -40,7 +40,7 @@ func NewClient(config *ClientConfig) (*Client, error) {
 	}
 
 	cli.config = config
-	cli.write_ch = make(chan []byte)
+	cli.write_ch = make(chan []byte, 1024)
 	cli.conn_mgr = NewConnManager(cli.write_ch)
 	return cli, nil
 }
@@ -107,9 +107,10 @@ func (cli *Client) Init() error {
 				conn_id := ReadN4(buf[4:])
 				switch buf[1] {
 				case PACKET_PROXY:
-					glog.V(3).Infof("proxy %d", pkt_size-4)
+					glog.V(3).Infof("proxy(%d) %d", conn_id, pkt_size-4)
 					cli.conn_mgr.WriteToLocalConn(conn_id, buf[8:4+pkt_size])
 				case PACKET_CLOSE_CONN:
+					glog.V(2).Infof("remote close %d", conn_id)
 					cli.conn_mgr.CloseConn(conn_id)
 				}
 			}
