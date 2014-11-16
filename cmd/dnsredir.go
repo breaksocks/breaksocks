@@ -54,7 +54,7 @@ func runDNSServer(cfg *tunnel.ClientConfig, cli *tunnel.Client, exit_ch chan boo
 			if retmsg, _, err := cli.Exchange(msg, dnsLocalAddr.String()); err == nil {
 				w.WriteMsg(retmsg)
 			} else {
-				dns.HandleFailed(w, retmsg)
+				dns.HandleFailed(w, msg)
 			}
 		}))
 	if err != nil {

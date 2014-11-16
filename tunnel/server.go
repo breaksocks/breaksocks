@@ -86,9 +86,9 @@ func (ser *Server) Run() {
 }
 
 func (ser *Server) processClient(conn *net.TCPConn) {
-	defer conn.Close()
-
 	pipe := NewStreamPipe(conn)
+	defer pipe.Close()
+
 	if ser.g_cipher != nil {
 		enc, dec, err := ser.g_cipher.NewCipher()
 		if err != nil {

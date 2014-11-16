@@ -67,6 +67,15 @@ func (cm *ConnManager) CloseConn(conn_id uint32) {
 	}
 }
 
+func (cm *ConnManager) CloseAllConns() {
+	cm.lock.Lock()
+	for _, sc := range cm.chans {
+		close(sc.read)
+	}
+	cm.chans = make(map[uint32]*SockChan)
+	cm.lock.Unlock()
+}
+
 func (cm *ConnManager) WriteToLocalConn(conn_id uint32, data []byte) {
 	defer func() {
 		err := recover()
