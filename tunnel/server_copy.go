@@ -82,10 +82,11 @@ func (cp *ClientProxy) DoProxy() {
 			select {
 			case data := <-cp.write:
 				if !cp.closed {
+					conn_id := ReadN4(data, 4)
 					if n, err := cp.pipe.Write(data); err != nil {
 						glog.V(1).Infof("write to client fail: %s", err.Error())
 					} else {
-						glog.V(3).Infof("pipe(%d) writted %d", ReadN4(data, 4), n-8)
+						glog.V(3).Infof("pipe(%d) writted %d", conn_id, n-8)
 					}
 				}
 			case <-send_to_client_exit:
@@ -119,7 +120,7 @@ func (cp *ClientProxy) DoProxy() {
 				return
 			}
 			pkt_size := ReadN2(buf, 2)
-			if pkt_size > 2048-4 {
+			if pkt_size > 2048-8 {
 				glog.V(1).Infof("recved an invalid packet, size: %d", pkt_size)
 				return
 			}

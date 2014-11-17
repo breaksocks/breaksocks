@@ -123,6 +123,7 @@ func (cm *ConnManager) copyConn(sc *SockChan, rw io.ReadWriteCloser) {
 				bs[1] = PACKET_PROXY
 				WriteN2(bs, 2, uint16(n))
 				WriteN4(bs, 4, sc.id)
+				glog.V(3).Infof("write %d %d %v", ReadN4(bs, 4), n, bs[:20])
 				cm.write_ch <- bs[:8+n]
 			} else {
 				glog.V(1).Infof("read local(%d) fail: %v", sc.id, err)

@@ -63,10 +63,11 @@ func (ct *ClientTunnel) Init() error {
 	go func() {
 		for {
 			if data, ok := <-ct.write_ch; ok {
+				conn_id := ReadN4(data, 4)
 				if n, err := ct.pipe.Write(data); err != nil {
 					break
 				} else {
-					glog.V(3).Infof("remote(%d) written %d", ReadN4(data, 4), n)
+					glog.V(3).Infof("remote(%d) written %d", conn_id, n-8)
 				}
 			} else {
 				break
@@ -77,24 +78,31 @@ func (ct *ClientTunnel) Init() error {
 	go func() {
 		for {
 			buf := make([]byte, 2048)
-			if _, err := io.ReadFull(ct.pipe, buf[:4]); err != nil {
+			if _, err := io.ReadFull(ct.pipe, buf[:8]); err != nil {
 				glog.Errorf("read from server fail: %s", err.Error())
 				break
 			} else {
-				pkt_size := ReadN2(buf, 2)
-				if _, err := io.ReadFull(ct.pipe, buf[4:pkt_size+4]); err != nil {
-					glog.Errorf("recv from server fail: %s", err.Error())
+				if buf[0] != PROTO_MAGIC {
+					glog.Errorf("invalid packet magic")
 					break
 				}
-				if pkt_size > 2048-4 {
+				pkt_size := ReadN2(buf, 2)
+				if pkt_size > 2048-8 {
 					glog.Errorf("invalid packet size: %s", pkt_size)
 					break
 				}
 				conn_id := ReadN4(buf, 4)
+				pkt_data := buf[8 : pkt_size+8]
+				if pkt_size > 0 {
+					if _, err := io.ReadFull(ct.pipe, pkt_data); err != nil {
+						glog.Errorf("recv from server fail: %s", err.Error())
+						break
+					}
+				}
 				switch buf[1] {
 				case PACKET_PROXY:
-					glog.V(3).Infof("proxy(%d) %d", conn_id, pkt_size-4)
-					ct.conn_mgr.WriteToLocalConn(conn_id, buf[8:4+pkt_size])
+					glog.V(3).Infof("proxy(%d) %d", conn_id, pkt_size)
+					ct.conn_mgr.WriteToLocalConn(conn_id, pkt_data)
 				case PACKET_CLOSE_CONN:
 					glog.V(2).Infof("remote close %d", conn_id)
 					ct.conn_mgr.CloseConn(conn_id)
