@@ -81,7 +81,7 @@ func (ct *ClientTunnel) Init() error {
 				glog.Errorf("read from server fail: %s", err.Error())
 				break
 			} else {
-				pkt_size := ReadN2(buf[2:])
+				pkt_size := ReadN2(buf, 2)
 				if _, err := io.ReadFull(ct.pipe, buf[4:pkt_size+4]); err != nil {
 					glog.Errorf("recv from server fail: %s", err.Error())
 					break
@@ -90,7 +90,7 @@ func (ct *ClientTunnel) Init() error {
 					glog.Errorf("invalid packet size: %s", pkt_size)
 					break
 				}
-				conn_id := ReadN4(buf[4:])
+				conn_id := ReadN4(buf, 4)
 				switch buf[1] {
 				case PACKET_PROXY:
 					glog.V(3).Infof("proxy(%d) %d", conn_id, pkt_size-4)
@@ -113,15 +113,15 @@ func (ct *ClientTunnel) startup() error {
 		return err
 	}
 
-	var header [10]byte
+	header := make([]byte, 10)
 	if _, err := io.ReadFull(ct.pipe, header[:]); err != nil {
 		glog.Errorf("recv startup rep header fail: %s", err.Error())
 		return err
 	}
 
-	pub_size, p_size := ReadN2(header[:]), ReadN2(header[2:])
-	f_size, sig_size := ReadN2(header[4:]), ReadN2(header[6:])
-	mds_size := ReadN2(header[8:])
+	pub_size, p_size := ReadN2(header, 0), ReadN2(header, 2)
+	f_size, sig_size := ReadN2(header, 4), ReadN2(header, 6)
+	mds_size := ReadN2(header, 8)
 	if pub_size == 0 || p_size == 0 || f_size == 0 || sig_size == 0 || mds_size == 0 {
 		return fmt.Errorf("invalid size pub:%d p:%d f:%d sig:%d mds:%d",
 			pub_size, p_size, f_size, sig_size, mds_size)
@@ -187,8 +187,8 @@ func (ct *ClientTunnel) startup() error {
 
 	e_bs := ct.cipher_ctx.EF.Bytes()
 	rep := make([]byte, 4+len(e_bs)+len(method))
-	WriteN2(rep, uint16(len(e_bs)))
-	WriteN2(rep[2:], uint16(len(method)))
+	WriteN2(rep, 0, uint16(len(e_bs)))
+	WriteN2(rep, 2, uint16(len(method)))
 	copy(rep[4:], e_bs)
 	copy(rep[4+len(e_bs):], []byte(method))
 	if _, err := ct.pipe.Write(rep); err != nil {
@@ -210,7 +210,7 @@ func (ct *ClientTunnel) startup() error {
 func (ct *ClientTunnel) login() error {
 	u, p := []byte(ct.cli.config.Username), []byte(ct.cli.config.Password)
 	buf := make([]byte, 4+len(u)+len(p))
-	WriteN2(buf, PROTO_VERSION)
+	WriteN2(buf, 0, PROTO_VERSION)
 	buf[2] = byte(len(u))
 	buf[3] = byte(len(p))
 	copy(buf[4:], u)

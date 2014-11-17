@@ -85,7 +85,7 @@ func (cp *ClientProxy) DoProxy() {
 					if n, err := cp.pipe.Write(data); err != nil {
 						glog.V(1).Infof("write to client fail: %s", err.Error())
 					} else {
-						glog.V(2).Infof("pipe writted %d", n-8)
+						glog.V(3).Infof("pipe(%d) writted %d", ReadN4(data, 4), n-8)
 					}
 				}
 			case <-send_to_client_exit:
@@ -118,7 +118,7 @@ func (cp *ClientProxy) DoProxy() {
 				glog.V(1).Infof("invalid magic: %d", buf[0])
 				return
 			}
-			pkt_size := ReadN2(buf[2:])
+			pkt_size := ReadN2(buf, 2)
 			if pkt_size > 2048-4 {
 				glog.V(1).Infof("recved an invalid packet, size: %d", pkt_size)
 				return
@@ -130,10 +130,10 @@ func (cp *ClientProxy) DoProxy() {
 
 			switch buf[1] {
 			case PACKET_PROXY:
-				cp.sendToConn(ReadN4(buf[4:]), buf[8:4+pkt_size])
+				cp.sendToConn(ReadN4(buf, 4), buf[8:4+pkt_size])
 			case PACKET_NEW_CONN:
-				port := ReadN2(buf[6:])
-				conn_id := ReadN4(buf[8:])
+				port := ReadN2(buf, 6)
+				conn_id := ReadN4(buf, 8)
 				conn_type := buf[4]
 				addr := buf[12 : 12+int(buf[5])]
 				pconn := cp.newConn(conn_id)
@@ -144,7 +144,7 @@ func (cp *ClientProxy) DoProxy() {
 					cp.closeConn(conn_id, pconn)
 				}()
 			case PACKET_CLOSE_CONN:
-				cp.closeConn(ReadN4(buf[4:]), nil)
+				cp.closeConn(ReadN4(buf, 4), nil)
 			}
 		}
 	}
@@ -220,9 +220,8 @@ func (cp *ClientProxy) copyRemote(read chan []byte, conn_id uint32, conn *net.TC
 				}
 				buf[0] = PROTO_MAGIC
 				buf[1] = PACKET_PROXY
-				WriteN2(buf[2:], uint16(n+4))
-				WriteN4(buf[4:], conn_id)
-				glog.V(2).Infof("remote got %d", n)
+				WriteN2(buf, 2, uint16(n+4))
+				WriteN4(buf, 4, conn_id)
 				copy_write <- buf[:8+n]
 			} else {
 				return
@@ -242,6 +241,7 @@ for_loop:
 			if err != nil {
 				break for_loop
 			}
+			glog.V(3).Infof("remote(%d) sent %d", conn_id, len(data))
 		case <-remote_read_exit:
 			break for_loop
 		}
@@ -252,8 +252,8 @@ for_loop:
 		buf := make([]byte, 8)
 		buf[0] = PROTO_MAGIC
 		buf[1] = PACKET_CLOSE_CONN
-		WriteN2(buf[2:], 4)
-		WriteN4(buf[4:], conn_id)
+		WriteN2(buf, 2, 4)
+		WriteN4(buf, 4, conn_id)
 		cp.write <- buf
 	}
 }

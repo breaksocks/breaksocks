@@ -154,10 +154,10 @@ func (ser *Server) newSession(pipe *StreamPipe) *Session {
 	p_bs, f_bs := ctx.P.Bytes(), f.Bytes()
 
 	buf := make([]byte, len(ser.pub_der)+len(p_bs)+len(f_bs)+len(ser.enc_methods)+2048)
-	WriteN2(buf, uint16(len(ser.pub_der)))
-	WriteN2(buf[2:], uint16(len(p_bs)))
-	WriteN2(buf[4:], uint16(len(f_bs)))
-	WriteN2(buf[8:], uint16(len(ser.enc_methods)))
+	WriteN2(buf, 0, uint16(len(ser.pub_der)))
+	WriteN2(buf, 2, uint16(len(p_bs)))
+	WriteN2(buf, 4, uint16(len(f_bs)))
+	WriteN2(buf, 8, uint16(len(ser.enc_methods)))
 	cur := 10
 	cur += copy(buf[cur:], ser.pub_der)
 	cur += copy(buf[cur:], p_bs)
@@ -171,7 +171,7 @@ func (ser *Server) newSession(pipe *StreamPipe) *Session {
 		glog.Errorf("sign p/g/f fail: %s", err.Error())
 		return nil
 	} else {
-		WriteN2(buf[6:], uint16(len(sig)))
+		WriteN2(buf, 6, uint16(len(sig)))
 		cur += copy(buf[cur:], sig)
 	}
 	cur += copy(buf[cur:], ser.enc_methods)
@@ -186,8 +186,8 @@ func (ser *Server) newSession(pipe *StreamPipe) *Session {
 		glog.V(1).Infof("read cipher exchange finish fail: %s", err.Error())
 		return nil
 	}
-	e_size := ReadN2(buf)
-	md_size := ReadN2(buf[2:])
+	e_size := ReadN2(buf, 0)
+	md_size := ReadN2(buf, 2)
 	if e_size == 0 || md_size < 0 || e_size+md_size > uint16(len(buf)) {
 		glog.V(1).Infof("invalid e/md size:%d %d", e_size, md_size)
 		return nil
@@ -264,7 +264,7 @@ func (ser *Server) clientLogin(ctx *CipherContext, pipe *StreamPipe) *Session {
 		msg = []byte("user/passwd size invalid")
 	}
 
-	WriteN2(buf, PROTO_VERSION)
+	WriteN2(buf, 0, PROTO_VERSION)
 	buf[2] = login_ok
 	buf[3] = byte(len(msg))
 	copy(buf[4:], msg)

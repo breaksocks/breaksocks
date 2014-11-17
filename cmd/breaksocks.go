@@ -52,7 +52,7 @@ func runRedirServer(cfg *tunnel.ClientConfig, cli *tunnel.Client, exit_ch chan b
 			var addr_in C.struct_sockaddr_in
 			if C.getdestaddr(C.int(f.Fd()), (*C.struct_sockaddr_in)(unsafe.Pointer(&addr_in))) == 0 {
 				port = int(C.ntohs(C.uint16_t(addr_in.sin_port)))
-				tunnel.WriteN4(addr, uint32(C.ntohl(C.uint32_t(addr_in.sin_addr.s_addr))))
+				tunnel.WriteN4(addr, 0, uint32(C.ntohl(C.uint32_t(addr_in.sin_addr.s_addr))))
 			} else {
 				glog.Fatal("get dest addr fail")
 			}
