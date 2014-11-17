@@ -243,11 +243,12 @@ for_loop:
 				conn.Close()
 				return
 			}
-			if _, err := conn.Write(data); err != nil {
+			if n, err := conn.Write(data); err != nil {
 				glog.V(3).Infof("remote(%d) write fail: %v", conn_id, err)
 				break for_loop
+			} else {
+				glog.V(3).Infof("remote(%d) sent %d", conn_id, n)
 			}
-			glog.V(3).Infof("remote(%d) sent %d", conn_id, len(data))
 		case <-remote_read_exit:
 			break for_loop
 		}
