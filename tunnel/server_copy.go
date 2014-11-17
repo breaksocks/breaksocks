@@ -229,6 +229,7 @@ func (cp *ClientProxy) copyRemote(read chan []byte, conn_id uint32, conn *net.TC
 				WriteN4(buf, 4, conn_id)
 				copy_write <- buf[:8+n]
 			} else {
+				glog.V(3).Infof("remote(%d) read fail: %v", conn_id, err)
 				return
 			}
 		}
@@ -242,8 +243,8 @@ for_loop:
 				conn.Close()
 				return
 			}
-			_, err := conn.Write(data)
-			if err != nil {
+			if _, err := conn.Write(data); err != nil {
+				glog.V(3).Infof("remote(%d) write fail: %v", conn_id, err)
 				break for_loop
 			}
 			glog.V(3).Infof("remote(%d) sent %d", conn_id, len(data))
