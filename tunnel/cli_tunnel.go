@@ -66,7 +66,7 @@ func (ct *ClientTunnel) Init() error {
 				if n, err := ct.pipe.Write(data); err != nil {
 					break
 				} else {
-					glog.V(3).Infof("remote written %d", n)
+					glog.V(3).Infof("remote(%d) written %d", ReadN4(data, 4), n)
 				}
 			} else {
 				break

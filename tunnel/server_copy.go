@@ -110,7 +110,7 @@ func (cp *ClientProxy) DoProxy() {
 	pipe := cp.pipe
 	for {
 		buf := make([]byte, 2048)
-		if _, err := io.ReadFull(pipe, buf[:4]); err != nil {
+		if _, err := io.ReadFull(pipe, buf[:8]); err != nil {
 			glog.V(1).Infof("recv packet fail: %s", err.Error())
 			return
 		} else {
@@ -123,19 +123,23 @@ func (cp *ClientProxy) DoProxy() {
 				glog.V(1).Infof("recved an invalid packet, size: %d", pkt_size)
 				return
 			}
-			if _, err := io.ReadFull(pipe, buf[4:pkt_size+4]); err != nil {
-				glog.V(1).Infof("recv packet fail: %s", err.Error())
-				return
+			conn_id := ReadN4(buf, 4)
+			pkt_data := buf[8 : pkt_size+8]
+			if pkt_size > 0 {
+				if _, err := io.ReadFull(pipe, pkt_data); err != nil {
+					glog.V(1).Infof("recv packet fail: %s", err.Error())
+					return
+				}
 			}
 
 			switch buf[1] {
 			case PACKET_PROXY:
-				cp.sendToConn(ReadN4(buf, 4), buf[8:4+pkt_size])
+				cp.sendToConn(conn_id, pkt_data)
 			case PACKET_NEW_CONN:
-				port := ReadN2(buf, 6)
-				conn_id := ReadN4(buf, 8)
-				conn_type := buf[4]
-				addr := buf[12 : 12+int(buf[5])]
+				conn_type := pkt_data[0]
+				//addr_size := int(pkt_data[1])
+				port := ReadN2(pkt_data, 2)
+				addr := pkt_data[4:]
 				pconn := cp.newConn(conn_id)
 				go func() {
 					if conn, err := cp.connectRemote(conn_type, addr, port); err == nil {
@@ -144,7 +148,7 @@ func (cp *ClientProxy) DoProxy() {
 					cp.closeConn(conn_id, pconn)
 				}()
 			case PACKET_CLOSE_CONN:
-				cp.closeConn(ReadN4(buf, 4), nil)
+				cp.closeConn(conn_id, nil)
 			}
 		}
 	}
@@ -220,7 +224,7 @@ func (cp *ClientProxy) copyRemote(read chan []byte, conn_id uint32, conn *net.TC
 				}
 				buf[0] = PROTO_MAGIC
 				buf[1] = PACKET_PROXY
-				WriteN2(buf, 2, uint16(n+4))
+				WriteN2(buf, 2, uint16(n))
 				WriteN4(buf, 4, conn_id)
 				copy_write <- buf[:8+n]
 			} else {
@@ -252,7 +256,7 @@ for_loop:
 		buf := make([]byte, 8)
 		buf[0] = PROTO_MAGIC
 		buf[1] = PACKET_CLOSE_CONN
-		WriteN2(buf, 2, 4)
+		WriteN2(buf, 2, 0)
 		WriteN4(buf, 4, conn_id)
 		cp.write <- buf
 	}

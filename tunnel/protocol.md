@@ -58,24 +58,22 @@
 1. magic[1] : magic
 2. packet_type[1] : packet type of encrypted data
 3. packet_size[2] : size of packet
-4. packet_data[packet_size] : real packet
+4. conn_id[4]: connection id
+5. packet_data[packet_size] : real packet
 
 ### 7. New Connection (in Encrypted Packet)
 1. conn_type[1] : (IPv4/6/unknown)[high 4bit] | (TCP/UDP/DOMAIN)[low 4bit]
 2. addr_size[1] : size of address
 3. port[2] : port
-4. conn_id[4] : connection id
 4. addr[addr_size] : address to connect
 
 ### 8. Connection Fail (in Encrypted Packet)
-1. conn_id[4] : connection id
-2. code[2] : error code
-3. msg_size[2] : size of errmsg
-4. msg[msg_size] : errmsg
+1. code[2] : error code
+2. msg_size[2] : size of errmsg
+3. msg[msg_size] : errmsg
 
 ### 9. Packet Proxy (in Encrypted Packet)
-1. conn_id[4] : connection id
-2. data[determined by parent packet] : packet data
+1. data[determined by parent packet] : packet data
 
 ### 10. Close Connection (in Encrypted Packet)
 1. conn_id[4] : connection id

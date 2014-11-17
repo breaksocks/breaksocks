@@ -102,11 +102,11 @@ func (cm *ConnManager) DoProxy(conn_type byte, addr []byte, port int, rw io.Read
 	req := make([]byte, 12+len(addr))
 	req[0] = PROTO_MAGIC
 	req[1] = PACKET_NEW_CONN
-	WriteN2(req, 2, uint16(8+len(addr)))
-	req[4] = conn_type
-	req[5] = byte(len(addr))
-	WriteN2(req, 6, uint16(port))
-	WriteN4(req, 8, sc.id)
+	WriteN2(req, 2, uint16(4+len(addr)))
+	WriteN4(req, 4, sc.id)
+	req[8] = conn_type
+	req[9] = byte(len(addr))
+	WriteN2(req, 10, uint16(port))
 	copy(req[12:], addr)
 	cm.write_ch <- req
 
@@ -121,11 +121,11 @@ func (cm *ConnManager) copyConn(sc *SockChan, rw io.ReadWriteCloser) {
 			if n, err := rw.Read(bs[8:]); err == nil {
 				bs[0] = PROTO_MAGIC
 				bs[1] = PACKET_PROXY
-				WriteN2(bs, 2, uint16(4+n))
+				WriteN2(bs, 2, uint16(n))
 				WriteN4(bs, 4, sc.id)
 				cm.write_ch <- bs[:8+n]
 			} else {
-				glog.V(1).Infof("read local fail: %v", err)
+				glog.V(1).Infof("read local(%d) fail: %v", sc.id, err)
 				exit_ch <- true
 				return
 			}
@@ -141,7 +141,7 @@ for_loop:
 				return
 			}
 			if _, err := rw.Write(data); err != nil {
-				glog.V(1).Infof("write fail: %v", err)
+				glog.V(1).Infof("write local(%d) fail: %v", sc.id, err)
 				break for_loop
 			}
 		case <-exit_ch:
@@ -152,10 +152,10 @@ for_loop:
 	bs := make([]byte, 8)
 	bs[0] = PROTO_MAGIC
 	bs[1] = PACKET_CLOSE_CONN
-	WriteN2(bs, 2, 4)
+	WriteN2(bs, 2, 0)
 	WriteN4(bs, 4, sc.id)
 	cm.write_ch <- bs
 	cm.delSockChan(sc.id)
 	close(sc.read)
-	glog.V(1).Infof("local close sock: %d", sc.id)
+	glog.V(1).Infof("local(%d) closed", sc.id)
 }
