@@ -184,44 +184,37 @@ func (cp *ClientProxy) connectRemote(conn_type byte, addr []byte, port uint16) (
 func (cp *ClientProxy) copyRemote(read chan []byte, conn_id uint32, conn *net.TCPConn) {
 	remote_read_exit := make(chan bool, 1)
 	copy_write := make(chan []byte, 512)
-	copy_write_exit := make(chan bool, 1)
+	closed_by_client := false
 
+	// remote chan -> client
 	go func() {
-		// exit: copy_write is closed or <-copy_write_exit or cp.closed
-		var data []byte
-		var ok bool
-
+		// exit: copy_write is closed or nil == <-copy_write or cp.closed
 		for !cp.closed {
-			select {
-			case data, ok = <-copy_write:
-				if !ok || cp.closed {
-					return
-				}
-			case <-copy_write_exit:
-				return
+			data, ok := <-copy_write
+			if !ok || cp.closed {
+				break
 			}
+			cp.write <- data
+		}
 
-			select {
-			case cp.write <- data:
-			case <-copy_write_exit:
-				return
-			}
+		if !cp.closed && !closed_by_client {
+			buf := make([]byte, 8)
+			buf[0] = PROTO_MAGIC
+			buf[1] = PACKET_CLOSE_CONN
+			WriteN2(buf, 2, 0)
+			WriteN4(buf, 4, conn_id)
+			cp.write <- buf
 		}
 	}()
 
+	// remote -> remote chan
 	go func() {
 		// exit: cp.closed or conn.Read fail
-		defer func() {
-			close(copy_write)
-			copy_write_exit <- true
-			remote_read_exit <- true
-		}()
-
 		for {
 			buf := make([]byte, 2048)
 			if n, err := conn.Read(buf[8:]); err == nil {
 				if cp.closed {
-					return
+					break
 				}
 				buf[0] = PROTO_MAGIC
 				buf[1] = PACKET_PROXY
@@ -230,37 +223,31 @@ func (cp *ClientProxy) copyRemote(read chan []byte, conn_id uint32, conn *net.TC
 				copy_write <- buf[:8+n]
 			} else {
 				glog.V(3).Infof("remote(%d) read fail: %v", conn_id, err)
-				return
+				break
 			}
 		}
+
+		close(copy_write)
+		remote_read_exit <- true
 	}()
 
-for_loop:
+	defer conn.Close()
+	// client -> remote
 	for {
 		select {
 		case data, ok := <-read:
 			if !ok {
-				conn.Close()
+				closed_by_client = true
 				return
 			}
 			if n, err := conn.Write(data); err != nil {
 				glog.V(3).Infof("remote(%d) write fail: %v", conn_id, err)
-				break for_loop
+				return
 			} else {
 				glog.V(3).Infof("remote(%d) sent %d", conn_id, n)
 			}
 		case <-remote_read_exit:
-			break for_loop
+			return
 		}
-	}
-
-	conn.Close()
-	if !cp.closed {
-		buf := make([]byte, 8)
-		buf[0] = PROTO_MAGIC
-		buf[1] = PACKET_CLOSE_CONN
-		WriteN2(buf, 2, 0)
-		WriteN4(buf, 4, conn_id)
-		cp.write <- buf
 	}
 }
