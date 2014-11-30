@@ -65,7 +65,7 @@ func (ct *ClientTunnel) Init() error {
 			if data, ok := <-ct.write_ch; ok {
 				conn_id := ReadN4(data, 4)
 				if n, err := ct.pipe.Write(data); err != nil {
-					break
+					glog.Fatalf("pipe write fail: %v", err)
 				} else {
 					glog.V(3).Infof("remote(%d) written %d", conn_id, n-8)
 				}

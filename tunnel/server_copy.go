@@ -188,10 +188,10 @@ func (cp *ClientProxy) copyRemote(read chan []byte, conn_id uint32, conn *net.TC
 
 	// remote chan -> client
 	go func() {
-		// exit: copy_write is closed or nil == <-copy_write or cp.closed
+		// exit: copy_write reach end or cp.closed or client closed
 		for !cp.closed {
 			data, ok := <-copy_write
-			if !ok || cp.closed {
+			if !ok || cp.closed || closed_by_client {
 				break
 			}
 			cp.write <- data
