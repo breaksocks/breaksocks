@@ -62,6 +62,7 @@ func (cm *ConnManager) CloseConn(conn_id uint32) {
 	cm.lock.RUnlock()
 
 	if sc != nil {
+		sc.closed = true
 		close(sc.read)
 		cm.delSockChan(conn_id)
 	}
@@ -155,7 +156,6 @@ for_loop:
 	WriteN2(bs, 2, 0)
 	WriteN4(bs, 4, sc.id)
 	cm.write_ch <- bs
-	cm.delSockChan(sc.id)
-	close(sc.read)
+	cm.CloseConn(sc.id)
 	glog.V(1).Infof("local(%d) closed", sc.id)
 }
